@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?jelly escape-by-default='true'?>
+<j:jelly xmlns:j="jelly:core" xmlns:f="/lib/form">
+    <f:section title="${%CloudWatch settings}">
+        <f:entry title="${%Log group}" field="logGroupName">
+            <f:textbox/>
+        </f:entry>
+        <f:validateButton title="Validate configuration" progress="Validating..." method="validate"
+                          with="logGroupName"/>
+    </f:section>
+</j:jelly>
