@@ -100,9 +100,13 @@ public class CloudWatchAwsGlobalConfiguration extends AbstractAwsGlobalConfigura
         if (StringUtils.isNotBlank(region)) {
             builder = builder.withRegion(region);
         }
-        AWSStaticCredentialsProvider credentialsProvider = new AWSStaticCredentialsProvider(
+        if (builder.getCredentials() != null) {
+            AWSStaticCredentialsProvider credentialsProvider = new AWSStaticCredentialsProvider(
                 CredentialsAwsGlobalConfiguration.get().sessionCredentials(builder));
-        return builder.withCredentials(credentialsProvider);
+            return builder.withCredentials(credentialsProvider);
+        } else {
+            return builder;
+        }
     }
 
     public FormValidation doCheckLogGroupName(@QueryParameter String logGroupName) {
