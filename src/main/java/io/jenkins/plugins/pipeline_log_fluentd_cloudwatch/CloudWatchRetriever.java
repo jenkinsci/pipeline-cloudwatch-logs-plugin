@@ -52,6 +52,8 @@ import hudson.AbortException;
 import hudson.ExtensionList;
 import hudson.console.AnnotatedLargeText;
 import hudson.console.ConsoleAnnotationOutputStream;
+import java.io.InputStream;
+import java.util.concurrent.atomic.AtomicInteger;
 import net.sf.json.JSONObject;
 
 /**
@@ -94,6 +96,7 @@ class CloudWatchRetriever {
 
         private final FlowExecutionOwner.Executable context;
         private final List<String> idsByLine = new ArrayList<>();
+        private final ByteBuffer buf;
 
         OverallLog(FlowExecutionOwner.Executable build, boolean completed) throws IOException {
             this(new ByteBuffer(), completed, build);
@@ -103,16 +106,33 @@ class CloudWatchRetriever {
             super(buf, StandardCharsets.UTF_8, completed && couldBeComplete(), context);
             this.context = context;
             stream(buf, null, idsByLine);
+            this.buf = buf;
         }
 
         @Override
         public long writeHtmlTo(long start, final Writer w) throws IOException {
+            AtomicInteger line = new AtomicInteger();
+            if (start > 0) {
+                long remaining = start;
+                try (InputStream is = buf.newInputStream()) {
+                    while (remaining > 0) {
+                        int c = is.read();
+                        if (c == -1) {
+                            assert false;
+                            break;
+                        }
+                        if (c == '\n') {
+                            line.incrementAndGet();
+                        }
+                        remaining--;
+                    }
+                }
+            }
             ConsoleAnnotationOutputStream<FlowExecutionOwner.Executable> caw = new ConsoleAnnotationOutputStream<FlowExecutionOwner.Executable>(w, ConsoleAnnotators.createAnnotator(context), context, StandardCharsets.UTF_8) {
-                private int line;
                 private String currentId;
                 @Override
                 protected void eol(byte[] in, int sz) throws IOException {
-                    String id = idsByLine.get(line++);
+                    String id = idsByLine.get(line.getAndIncrement());
                     if (id != null) {
                         if (!id.equals(currentId)) {
                             if (currentId != null) {
@@ -125,6 +145,13 @@ class CloudWatchRetriever {
                     }
                     super.eol(in, sz);
                     currentId = id;
+                }
+                @Override
+                public void flush() throws IOException {
+                    super.flush();
+                    if (currentId != null) {
+                        w.write(LogStorage.endStep());
+                    }
                 }
             };
             long r = writeRawLogTo(start, caw);
