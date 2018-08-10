@@ -34,6 +34,7 @@ import org.kohsuke.stapler.QueryParameter;
 import org.kohsuke.stapler.interceptor.RequirePOST;
 
 import com.amazonaws.auth.AWSStaticCredentialsProvider;
+import com.amazonaws.auth.DefaultAWSCredentialsProviderChain;
 import com.amazonaws.services.logs.AWSLogs;
 import com.amazonaws.services.logs.AWSLogsClientBuilder;
 import com.amazonaws.services.logs.model.FilterLogEventsRequest;
@@ -96,7 +97,8 @@ public class CloudWatchAwsGlobalConfiguration extends AbstractAwsGlobalConfigura
      * @throws IOException
      */
     private AWSLogsClientBuilder getAWSLogsClientBuilder(String region) throws IOException {
-        AWSLogsClientBuilder builder = AWSLogsClientBuilder.standard();
+        AWSLogsClientBuilder builder = AWSLogsClientBuilder.standard()
+                .withCredentials(new DefaultAWSCredentialsProviderChain());
         if (StringUtils.isNotBlank(region)) {
             builder = builder.withRegion(region);
         }
@@ -122,16 +124,25 @@ public class CloudWatchAwsGlobalConfiguration extends AbstractAwsGlobalConfigura
             throws IOException {
         Jenkins.get().checkPermission(Jenkins.ADMINISTER);
 
-        AWSLogsClientBuilder builder = AWSLogsClientBuilder.standard();
+        AWSLogsClientBuilder builder = AWSLogsClientBuilder.standard()
+                .withCredentials(new DefaultAWSCredentialsProviderChain());
         String region = CredentialsAwsGlobalConfiguration.get().getRegion();
         if (region != null) {
             builder = builder.withRegion(region);
         }
-        AWSStaticCredentialsProvider credentialsProvider = new AWSStaticCredentialsProvider(
-                CredentialsAwsGlobalConfiguration.get().sessionCredentials(builder));
-        AWSLogs client = builder.withCredentials(credentialsProvider).build();
 
         FormValidation ret = FormValidation.ok("success");
+        AWSLogs client;
+        try {
+            AWSStaticCredentialsProvider credentialsProvider = new AWSStaticCredentialsProvider(
+                    CredentialsAwsGlobalConfiguration.get().sessionCredentials(builder));
+            client = builder.withCredentials(credentialsProvider).build();
+        } catch (Throwable t) {
+            String msg = processExceptionMessage(t);
+            ret = FormValidation.error("Unable to validate credentials: " + StringUtils.abbreviate(msg, 200));
+            return ret;
+        }
+
         try {
             FilterLogEventsRequest request = new FilterLogEventsRequest();
             request.setLogGroupName(logGroupName);
