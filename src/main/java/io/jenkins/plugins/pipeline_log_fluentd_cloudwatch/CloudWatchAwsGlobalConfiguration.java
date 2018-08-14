@@ -29,6 +29,9 @@ import java.io.IOException;
 import javax.annotation.Nonnull;
 
 import org.apache.commons.lang.StringUtils;
+import org.jenkinsci.Symbol;
+import org.kohsuke.accmod.Restricted;
+import org.kohsuke.accmod.restrictions.NoExternalUse;
 import org.kohsuke.stapler.DataBoundSetter;
 import org.kohsuke.stapler.QueryParameter;
 import org.kohsuke.stapler.interceptor.RequirePOST;
@@ -41,12 +44,12 @@ import com.amazonaws.services.logs.model.FilterLogEventsRequest;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
 import hudson.Extension;
+import hudson.Util;
 import hudson.model.Failure;
 import hudson.util.FormValidation;
 import io.jenkins.plugins.aws.global_configuration.AbstractAwsGlobalConfiguration;
 import io.jenkins.plugins.aws.global_configuration.CredentialsAwsGlobalConfiguration;
 import jenkins.model.Jenkins;
-import org.jenkinsci.Symbol;
 
 /**
  * Store the AWS configuration to save it on a separate file
@@ -62,6 +65,13 @@ public class CloudWatchAwsGlobalConfiguration extends AbstractAwsGlobalConfigura
 
     public CloudWatchAwsGlobalConfiguration() {
         load();
+    }
+
+    /**
+     * Testing only
+     */
+    @Restricted(NoExternalUse.class)
+    protected CloudWatchAwsGlobalConfiguration(boolean test) {
     }
 
     public String getLogGroupName() {
@@ -88,7 +98,8 @@ public class CloudWatchAwsGlobalConfiguration extends AbstractAwsGlobalConfigura
     }
 
     public AWSLogsClientBuilder getAWSLogsClientBuilder() throws IOException {
-        return getAWSLogsClientBuilder(CredentialsAwsGlobalConfiguration.get().getRegion());
+        return getAWSLogsClientBuilder(CredentialsAwsGlobalConfiguration.get().getRegion(),
+                CredentialsAwsGlobalConfiguration.get().getCredentialsId());
     }
 
     /**
@@ -96,18 +107,18 @@ public class CloudWatchAwsGlobalConfiguration extends AbstractAwsGlobalConfigura
      * @return an AWSLogsClientBuilder using the passed region
      * @throws IOException
      */
-    private AWSLogsClientBuilder getAWSLogsClientBuilder(String region) throws IOException {
-        AWSLogsClientBuilder builder = AWSLogsClientBuilder.standard()
-                .withCredentials(new DefaultAWSCredentialsProviderChain());
-        if (StringUtils.isNotBlank(region)) {
+    @Restricted(NoExternalUse.class)
+    AWSLogsClientBuilder getAWSLogsClientBuilder(String region, String credentialsId) throws IOException {
+        AWSLogsClientBuilder builder = AWSLogsClientBuilder.standard();
+        if (region != null) {
             builder = builder.withRegion(region);
         }
-        if (builder.getCredentials() != null) {
+        if (credentialsId != null) {
             AWSStaticCredentialsProvider credentialsProvider = new AWSStaticCredentialsProvider(
-                CredentialsAwsGlobalConfiguration.get().sessionCredentials(builder));
+                    CredentialsAwsGlobalConfiguration.get().sessionCredentials(builder, region, credentialsId));
             return builder.withCredentials(credentialsProvider);
         } else {
-            return builder;
+            return builder.withCredentials(new DefaultAWSCredentialsProviderChain());
         }
     }
 
@@ -120,23 +131,19 @@ public class CloudWatchAwsGlobalConfiguration extends AbstractAwsGlobalConfigura
     }
 
     @RequirePOST
-    public FormValidation doValidate(@QueryParameter String logGroupName)
-            throws IOException {
+    public FormValidation doValidate(@QueryParameter String logGroupName, @QueryParameter String region,
+            @QueryParameter String credentialsId) throws IOException {
         Jenkins.get().checkPermission(Jenkins.ADMINISTER);
+        return validate(logGroupName, Util.fixEmptyAndTrim(region), Util.fixEmptyAndTrim(credentialsId));
+    }
 
-        AWSLogsClientBuilder builder = AWSLogsClientBuilder.standard()
-                .withCredentials(new DefaultAWSCredentialsProviderChain());
-        String region = CredentialsAwsGlobalConfiguration.get().getRegion();
-        if (region != null) {
-            builder = builder.withRegion(region);
-        }
-
+    @Restricted(NoExternalUse.class)
+    FormValidation validate(String logGroupName, String region, String credentialsId) throws IOException {
         FormValidation ret = FormValidation.ok("success");
         AWSLogs client;
         try {
-            AWSStaticCredentialsProvider credentialsProvider = new AWSStaticCredentialsProvider(
-                    CredentialsAwsGlobalConfiguration.get().sessionCredentials(builder));
-            client = builder.withCredentials(credentialsProvider).build();
+            AWSLogsClientBuilder builder = getAWSLogsClientBuilder(region, credentialsId);
+            client = builder.build();
         } catch (Throwable t) {
             String msg = processExceptionMessage(t);
             ret = FormValidation.error("Unable to validate credentials: " + StringUtils.abbreviate(msg, 200));
@@ -144,14 +151,19 @@ public class CloudWatchAwsGlobalConfiguration extends AbstractAwsGlobalConfigura
         }
 
         try {
-            FilterLogEventsRequest request = new FilterLogEventsRequest();
-            request.setLogGroupName(logGroupName);
-            client.filterLogEvents(request);
+            filter(client, logGroupName);
         } catch (Throwable t) {
             String msg = processExceptionMessage(t);
             ret = FormValidation.error(StringUtils.abbreviate(msg, 200));
         }
         return ret;
+    }
+
+    @Restricted(NoExternalUse.class)
+    protected void filter(AWSLogs client, String logGroupName2) {
+        FilterLogEventsRequest request = new FilterLogEventsRequest();
+        request.setLogGroupName(logGroupName);
+        client.filterLogEvents(request);
     }
 
 }
