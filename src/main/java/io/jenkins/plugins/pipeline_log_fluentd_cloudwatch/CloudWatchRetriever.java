@@ -119,7 +119,7 @@ class CloudWatchRetriever {
                     while (remaining > 0) {
                         int c = is.read();
                         if (c == -1) {
-                            assert false;
+                            LOGGER.log(Level.WARNING, "EOF while calculating line numbers from {0} with remaining {1}", new Object[] {start, remaining});
                             break;
                         }
                         if (c == '\n') {
