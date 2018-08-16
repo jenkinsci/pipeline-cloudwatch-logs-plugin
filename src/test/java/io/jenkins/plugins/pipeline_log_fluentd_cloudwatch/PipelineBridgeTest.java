@@ -29,6 +29,7 @@ import hudson.ExtensionList;
 import java.net.ConnectException;
 import java.net.Socket;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import static org.hamcrest.Matchers.*;
 import org.jenkinsci.plugins.workflow.log.LogStorage;
@@ -39,6 +40,7 @@ import org.junit.Before;
 public class PipelineBridgeTest extends LogStorageTestBase {
 
     private Map<String, TimestampTracker> timestampTrackers;
+    private String id;
 
     @Before public void setUp() throws Exception {
         timestampTrackers = new ConcurrentHashMap<>();
@@ -62,10 +64,11 @@ public class PipelineBridgeTest extends LogStorageTestBase {
         } catch (AWSLogsException x) {
             assumeNoException(x);
         }
+        id = UUID.randomUUID().toString();
     }
 
     @Override protected LogStorage createStorage() throws Exception {
-        return new PipelineBridge.LogStorageImpl("PipelineBridgeTest", "123", timestampTrackers);
+        return new PipelineBridge.LogStorageImpl("PipelineBridgeTest", id, timestampTrackers);
     }
 
 }
