@@ -159,7 +159,7 @@ public class CloudWatchAwsGlobalConfiguration extends AbstractAwsGlobalConfigura
     }
 
     @Restricted(NoExternalUse.class)
-    protected void filter(AWSLogs client, String logGroupName2) {
+    protected void filter(AWSLogs client, String logGroupName) {
         FilterLogEventsRequest request = new FilterLogEventsRequest();
         request.setLogGroupName(logGroupName);
         client.filterLogEvents(request);
