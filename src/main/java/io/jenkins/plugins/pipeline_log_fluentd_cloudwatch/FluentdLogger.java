@@ -33,6 +33,7 @@ import java.io.PrintStream;
 import java.io.UnsupportedEncodingException;
 import java.util.Map;
 import javax.annotation.CheckForNull;
+import javax.annotation.Nonnull;
 import org.komamitsu.fluency.EventTime;
 import org.komamitsu.fluency.Fluency;
 
@@ -50,9 +51,9 @@ final class FluentdLogger implements BuildListener, Closeable {
     private final int port;
     private transient PrintStream logger;
     private final String sender;
-    private transient @CheckForNull TimestampTracker timestampTracker;
+    private transient @Nonnull TimestampTracker timestampTracker;
 
-    FluentdLogger(String logStreamName, String buildId, @CheckForNull String nodeId, TimestampTracker timestampTracker) {
+    FluentdLogger(String logStreamName, String buildId, @CheckForNull String nodeId, @Nonnull TimestampTracker timestampTracker) {
         this(logStreamName, buildId, nodeId, host(), port(), "master", timestampTracker);
     }
 
@@ -77,7 +78,7 @@ final class FluentdLogger implements BuildListener, Closeable {
     }
 
     private Object writeReplace() {
-        return new FluentdLogger(logStreamName, buildId, nodeId, host, port, Channel.current().getName(), /* do not currently bother to record events from agent side */null);
+        return new FluentdLogger(logStreamName, buildId, nodeId, host, port, Channel.current().getName(), /* do not currently bother to record events from agent side */new TimestampTracker());
     }
 
     @Override
@@ -120,12 +121,9 @@ final class FluentdLogger implements BuildListener, Closeable {
                 data.put("node", nodeId);
             }
             data.put("sender", sender); // for diagnostic purposes; could be dropped to avoid overhead
-            long now = System.currentTimeMillis();
+            long now = timestampTracker.eventSent();
             data.put("timestamp", now); // TODO pending https://github.com/fluent-plugins-nursery/fluent-plugin-cloudwatch-logs/pull/108
             logger.emit(logStreamName, EventTime.fromEpochMilli(now), data);
-            if (timestampTracker != null) {
-                timestampTracker.eventSent(now);
-            }
         }
 
         @Override
