@@ -27,6 +27,7 @@ package io.jenkins.plugins.pipeline_log_fluentd_cloudwatch;
 import hudson.console.LineTransformationOutputStream;
 import hudson.model.BuildListener;
 import hudson.remoting.Channel;
+import java.io.Closeable;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.io.UnsupportedEncodingException;
@@ -38,7 +39,7 @@ import org.komamitsu.fluency.Fluency;
 /**
  * Sends Pipeline build log lines to fluentd.
  */
-final class FluentdLogger implements BuildListener {
+final class FluentdLogger implements BuildListener, Closeable {
 
     private static final long serialVersionUID = 1;
 
@@ -80,7 +81,7 @@ final class FluentdLogger implements BuildListener {
     }
 
     @Override
-    public PrintStream getLogger() {
+    public synchronized PrintStream getLogger() {
         if (logger == null) {
             try {
                 logger = new PrintStream(new FluentdOutputStream(), true, "UTF-8");
@@ -89,6 +90,14 @@ final class FluentdLogger implements BuildListener {
             }
         }
         return logger;
+    }
+
+    @Override
+    public synchronized void close() throws IOException {
+        if (logger != null) {
+            logger.close();
+            logger = null;
+        }
     }
 
     private class FluentdOutputStream extends LineTransformationOutputStream {
