@@ -17,7 +17,7 @@
         <jenkins.version>2.121.2</jenkins.version>
         <java.level>8</java.level>
         <useBeta>true</useBeta>
-        <workflow-api-plugin.version>2.30-rc810.1d32618d6b12</workflow-api-plugin.version> <!-- TODO https://github.com/jenkinsci/workflow-api-plugin/pull/17 -->
+        <workflow-api-plugin.version>2.30-rc812.d4e41dfec503</workflow-api-plugin.version> <!-- TODO https://github.com/jenkinsci/workflow-api-plugin/pull/17 -->
     </properties>
     <name>Pipeline Logging over fluentd + CloudWatch Plugin</name>
     <licenses>
