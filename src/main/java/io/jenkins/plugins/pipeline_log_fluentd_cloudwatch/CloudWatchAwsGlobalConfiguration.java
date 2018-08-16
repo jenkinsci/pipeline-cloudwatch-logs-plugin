@@ -70,8 +70,7 @@ public class CloudWatchAwsGlobalConfiguration extends AbstractAwsGlobalConfigura
     /**
      * Testing only
      */
-    @Restricted(NoExternalUse.class)
-    protected CloudWatchAwsGlobalConfiguration(boolean test) {
+    CloudWatchAwsGlobalConfiguration(boolean test) {
     }
 
     public String getLogGroupName() {
