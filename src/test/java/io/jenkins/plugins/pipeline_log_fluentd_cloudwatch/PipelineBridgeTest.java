@@ -31,14 +31,18 @@ import java.net.Socket;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.logging.Level;
 import static org.hamcrest.Matchers.*;
 import org.jenkinsci.plugins.workflow.log.LogStorage;
 import org.jenkinsci.plugins.workflow.log.LogStorageTestBase;
 import static org.junit.Assume.*;
 import org.junit.Before;
+import org.junit.Rule;
+import org.jvnet.hudson.test.LoggerRule;
 
 public class PipelineBridgeTest extends LogStorageTestBase {
 
+    @Rule public LoggerRule logging = new LoggerRule().recordPackage(PipelineBridge.class, Level.FINER);
     private Map<String, TimestampTracker> timestampTrackers;
     private String id;
 

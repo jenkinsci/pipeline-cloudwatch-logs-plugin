@@ -169,9 +169,10 @@ class CloudWatchRetriever {
         return timestampTracker.checkCompletion(timestamp -> {
             // Do not use withStartTime(timestamp) as the fluentd bridge currently truncates milliseconds (see below).
             if (client.filterLogEvents(createFilter().withFilterPattern("{$.timestamp = " + timestamp + "}").withLimit(1)).getEvents().isEmpty()) {
-                LOGGER.log(Level.FINE, "{0} contains no event in {1} with timestamp={2}", new Object[] {logGroupName, logStreamName, Long.toString(timestamp)});
+                LOGGER.log(Level.FINE, "{0} contains no event in {1} with timestamp={2}", new Object[] {logGroupName, logStreamName, timestamp});
                 return false;
             } else {
+                LOGGER.log(Level.FINER, "{0} does contain an event in {1} with timestamp={2}", new Object[] {logGroupName, logStreamName, timestamp});
                 return true;
             }
         });
@@ -190,6 +191,7 @@ class CloudWatchRetriever {
                     FilterLogEventsResult result = client.filterLogEvents(createFilter().withFilterPattern("{$.build = \"" + buildId + (nodeId == null ? "" : "\" && $.node = \"" + nodeId) + "\"}").withNextToken(token));
                     token = result.getNextToken();
                     List<FilteredLogEvent> events = result.getEvents();
+                    LOGGER.log(Level.FINER, "event count {0} from group={1} stream={2} buildId={3} nodeId={4}", new Object[] {events.size(), logGroupName, logStreamName, buildId, nodeId});
                     // TODO pending https://github.com/fluent-plugins-nursery/fluent-plugin-cloudwatch-logs/pull/108:
                     events.sort(Comparator.comparingLong(e -> JSONObject.fromObject(e.getMessage()).optLong("timestamp", e.getTimestamp())));
                     for (FilteredLogEvent event : events) {

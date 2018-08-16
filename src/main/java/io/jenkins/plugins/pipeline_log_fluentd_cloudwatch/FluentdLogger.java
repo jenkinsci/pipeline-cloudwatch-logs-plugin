@@ -32,6 +32,8 @@ import java.io.IOException;
 import java.io.PrintStream;
 import java.io.UnsupportedEncodingException;
 import java.util.Map;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import javax.annotation.CheckForNull;
 import javax.annotation.Nonnull;
 import org.komamitsu.fluency.EventTime;
@@ -41,6 +43,8 @@ import org.komamitsu.fluency.Fluency;
  * Sends Pipeline build log lines to fluentd.
  */
 final class FluentdLogger implements BuildListener, Closeable {
+
+    private static final Logger LOGGER = Logger.getLogger(FluentdLogger.class.getName());
 
     private static final long serialVersionUID = 1;
 
@@ -124,6 +128,7 @@ final class FluentdLogger implements BuildListener, Closeable {
             long now = timestampTracker.eventSent();
             data.put("timestamp", now); // TODO pending https://github.com/fluent-plugins-nursery/fluent-plugin-cloudwatch-logs/pull/108
             logger.emit(logStreamName, EventTime.fromEpochMilli(now), data);
+            LOGGER.log(Level.FINER, "sent event @{0} from {1}/{2}#{3}", new Object[] {now, logStreamName, buildId, nodeId});
         }
 
         @Override

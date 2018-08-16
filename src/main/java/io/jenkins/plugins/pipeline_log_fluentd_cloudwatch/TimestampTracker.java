@@ -25,6 +25,7 @@
 package io.jenkins.plugins.pipeline_log_fluentd_cloudwatch;
 
 import java.util.function.Function;
+import java.util.logging.Logger;
 
 /**
  * For a given build, tracks the last event timestamp known to have been sent to fluentd.
@@ -35,7 +36,13 @@ import java.util.function.Function;
  */
 final class TimestampTracker {
 
+    private static final Logger LOGGER = Logger.getLogger(TimestampTracker.class.getName());
+
     private long lastRecordedTimestamp;
+
+    TimestampTracker() {
+        LOGGER.fine("created new timestamp tracker");
+    }
 
     /**
      * Called when we are delivering an event to fluentd.
