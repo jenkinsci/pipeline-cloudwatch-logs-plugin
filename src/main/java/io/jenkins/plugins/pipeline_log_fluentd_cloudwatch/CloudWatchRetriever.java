@@ -88,8 +88,9 @@ class CloudWatchRetriever {
 
     AnnotatedLargeText<FlowNode> stepLog(FlowNode node, boolean completed) throws IOException {
         ByteBuffer buf = new ByteBuffer();
+        boolean markedCompleted = completed && couldBeComplete();
         stream(buf, node.getId(), null);
-        return new AnnotatedLargeText<>(buf, StandardCharsets.UTF_8, completed && couldBeComplete(), node);
+        return new AnnotatedLargeText<>(buf, StandardCharsets.UTF_8, markedCompleted, node);
     }
 
     private class OverallLog extends AnnotatedLargeText<FlowExecutionOwner.Executable> {
