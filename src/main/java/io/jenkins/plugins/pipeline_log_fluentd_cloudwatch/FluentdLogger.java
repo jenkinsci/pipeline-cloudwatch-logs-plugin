@@ -32,6 +32,7 @@ import java.io.IOException;
 import java.io.PrintStream;
 import java.io.UnsupportedEncodingException;
 import java.util.Map;
+import java.util.Objects;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import javax.annotation.CheckForNull;
@@ -48,16 +49,16 @@ final class FluentdLogger implements BuildListener, Closeable {
 
     private static final long serialVersionUID = 1;
 
-    private final String logStreamName;
-    private final String buildId;
+    private final @Nonnull String logStreamName;
+    private final @Nonnull String buildId;
     private final @CheckForNull String nodeId;
-    private final String host;
+    private final @Nonnull String host;
     private final int port;
-    private transient PrintStream logger;
-    private final String sender;
-    private transient @Nonnull TimestampTracker timestampTracker;
+    private transient @CheckForNull PrintStream logger;
+    private final @Nonnull String sender;
+    private transient @CheckForNull TimestampTracker timestampTracker;
 
-    FluentdLogger(String logStreamName, String buildId, @CheckForNull String nodeId, @Nonnull TimestampTracker timestampTracker) {
+    FluentdLogger(@Nonnull String logStreamName, @Nonnull String buildId, @CheckForNull String nodeId, @CheckForNull TimestampTracker timestampTracker) {
         this(logStreamName, buildId, nodeId, host(), port(), "master", timestampTracker);
     }
 
@@ -71,23 +72,26 @@ final class FluentdLogger implements BuildListener, Closeable {
         return port == null ? 24224 : Integer.parseInt(port);
     }
 
-    private FluentdLogger(String logStreamName, String buildId, @CheckForNull String nodeId, String host, int port, String sender, TimestampTracker timestampTracker) {
-        this.logStreamName = logStreamName;
-        this.buildId = buildId;
+    private FluentdLogger(@Nonnull String logStreamName, @Nonnull String buildId, @CheckForNull String nodeId, @Nonnull String host, int port, @Nonnull String sender, @CheckForNull TimestampTracker timestampTracker) {
+        this.logStreamName = Objects.requireNonNull(logStreamName);
+        this.buildId = Objects.requireNonNull(buildId);
         this.nodeId = nodeId;
-        this.host = host;
+        this.host = Objects.requireNonNull(host);
         this.port = port;
         this.sender = sender;
         this.timestampTracker = timestampTracker;
     }
 
     private Object writeReplace() {
-        return new FluentdLogger(logStreamName, buildId, nodeId, host, port, Channel.current().getName(), /* do not currently bother to record events from agent side */new TimestampTracker());
+        return new FluentdLogger(logStreamName, buildId, nodeId, host, port, Channel.current().getName(), /* do not currently bother to record events from agent side */null);
     }
 
     @Override
     public synchronized PrintStream getLogger() {
         if (logger == null) {
+            if (timestampTracker == null) {
+                timestampTracker = new TimestampTracker(); // need to serialize messages though we are not coördinating with CloudWatchRetriever on the master side
+            }
             try {
                 logger = new PrintStream(new FluentdOutputStream(), true, "UTF-8");
             } catch (UnsupportedEncodingException x) {
