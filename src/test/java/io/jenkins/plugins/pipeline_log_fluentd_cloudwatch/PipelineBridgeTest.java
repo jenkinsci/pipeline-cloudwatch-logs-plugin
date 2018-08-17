@@ -24,8 +24,8 @@
 
 package io.jenkins.plugins.pipeline_log_fluentd_cloudwatch;
 
-import com.amazonaws.services.logs.model.AWSLogsException;
 import hudson.ExtensionList;
+import hudson.util.FormValidation;
 import java.net.ConnectException;
 import java.util.Collections;
 import java.util.Map;
@@ -50,22 +50,20 @@ public class PipelineBridgeTest extends LogStorageTestBase {
     private String id;
 
     @Before public void setUp() throws Exception {
-        timestampTrackers = new ConcurrentHashMap<>();
         String logGroupName = System.getenv("CLOUDWATCH_LOG_GROUP_NAME");
         assumeThat("must define $CLOUDWATCH_LOG_GROUP_NAME", logGroupName, notNullValue());
+        CloudWatchAwsGlobalConfiguration configuration = ExtensionList.lookupSingleton(CloudWatchAwsGlobalConfiguration.class);
+        FormValidation logGroupNameValidation = configuration.validate(logGroupName, null, null);
+        assumeThat(logGroupNameValidation.toString(), logGroupNameValidation.kind, is(FormValidation.Kind.OK));
+        configuration.setLogGroupName(logGroupName);
+        // TODO reuse form validation when #6 is merged:
         try (Fluency fluency = new Fluency.Builder(new TCPSender.Config().setHost(FluentdLogger.host()).setPort(FluentdLogger.port()).createInstance()).setFlusherConfig(new SyncFlusher.Config().setFlushIntervalMillis(1000)).build()) {
             fluency.emit("PipelineBridgeTest", Collections.singletonMap("ping", true));
             fluency.flush();
         } catch (ConnectException x) {
             assumeNoException("set $FLUENTD_SERVICE_HOST / $FLUENTD_SERVICE_PORT_TCP as needed", x);
         }
-        CloudWatchAwsGlobalConfiguration configuration = ExtensionList.lookupSingleton(CloudWatchAwsGlobalConfiguration.class);
-        configuration.setLogGroupName(logGroupName);
-        try {
-            configuration.getAWSLogsClientBuilder().build().describeLogGroups();
-        } catch (AWSLogsException x) {
-            assumeNoException(x);
-        }
+        timestampTrackers = new ConcurrentHashMap<>();
         id = UUID.randomUUID().toString();
     }
 
