@@ -24,6 +24,8 @@
 
 package io.jenkins.plugins.pipeline_log_fluentd_cloudwatch;
 
+import java.io.IOException;
+
 import com.amazonaws.services.logs.AWSLogs;
 
 public class CloudWatchAwsGlobalConfigurationStub extends CloudWatchAwsGlobalConfiguration {
@@ -32,7 +34,14 @@ public class CloudWatchAwsGlobalConfigurationStub extends CloudWatchAwsGlobalCon
         super(true);
     }
 
-    protected void filter(AWSLogs client, String logGroupName2) {
+    @Override
+    void validateCloudWatch(AWSLogs client, String logGroupName2) {
         // noop
     }
+
+    @Override
+    void validateFluentd(String fluentdHost, int fluentdPort) throws IOException {
+        // noop
+    }
+    
 }

@@ -5,7 +5,13 @@
         <f:entry title="${%Log group}" field="logGroupName">
             <f:textbox/>
         </f:entry>
+        <f:entry title="${%Fluentd host}" field="fluentdHost">
+            <f:textbox/>
+        </f:entry>
+        <f:entry title="${%Fluentd port}" field="fluentdPort">
+            <f:number/>
+        </f:entry>
         <f:validateButton title="Validate configuration" progress="Validating..." method="validate"
-                          with="logGroupName,region,credentialsId"/>
+                          with="logGroupName,fluentdHost,fluentdPort,region,credentialsId"/>
     </f:section>
 </j:jelly>

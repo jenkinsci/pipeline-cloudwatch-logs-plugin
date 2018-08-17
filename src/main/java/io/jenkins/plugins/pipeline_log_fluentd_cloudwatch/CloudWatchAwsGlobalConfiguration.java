@@ -25,6 +25,8 @@
 package io.jenkins.plugins.pipeline_log_fluentd_cloudwatch;
 
 import java.io.IOException;
+import java.util.Collections;
+import java.util.Map;
 
 import javax.annotation.Nonnull;
 
@@ -35,6 +37,14 @@ import org.kohsuke.accmod.restrictions.NoExternalUse;
 import org.kohsuke.stapler.DataBoundSetter;
 import org.kohsuke.stapler.QueryParameter;
 import org.kohsuke.stapler.interceptor.RequirePOST;
+import org.komamitsu.fluency.EventTime;
+import org.komamitsu.fluency.Fluency;
+import org.komamitsu.fluency.buffer.PackedForwardBuffer;
+import org.komamitsu.fluency.flusher.AsyncFlusher;
+import org.komamitsu.fluency.flusher.SyncFlusher;
+import org.komamitsu.fluency.sender.RetryableSender;
+import org.komamitsu.fluency.sender.TCPSender;
+import org.komamitsu.fluency.sender.retry.ExponentialBackOffRetryStrategy;
 
 import com.amazonaws.auth.AWSStaticCredentialsProvider;
 import com.amazonaws.auth.DefaultAWSCredentialsProviderChain;
@@ -63,6 +73,16 @@ public class CloudWatchAwsGlobalConfiguration extends AbstractAwsGlobalConfigura
      */
     private String logGroupName;
 
+    /**
+     * Fluentd host.
+     */
+    private String fluentdHost;
+
+    /**
+     * Fluentd port.
+     */
+    private int fluentdPort;
+
     public CloudWatchAwsGlobalConfiguration() {
         load();
     }
@@ -82,6 +102,53 @@ public class CloudWatchAwsGlobalConfiguration extends AbstractAwsGlobalConfigura
         this.logGroupName = logGroupName;
         checkValue(doCheckLogGroupName(logGroupName));
         save();
+    }
+
+    public String getFluentdHost() {
+        return fluentdHost;
+    }
+
+    @DataBoundSetter
+    public void setFluentdHost(String fluentdHost) {
+        this.fluentdHost = fluentdHost;
+    }
+
+    public int getFluentdPort() {
+        return fluentdPort;
+    }
+
+    /**
+     * @return the fluentd host calculated from configured values, environment variable
+     *         <code>FLUENTD_SERVICE_HOST</code> and default <code>localhost</code>
+     */
+    String computeFluentdHost() {
+        return computeFluentdHost(getFluentdHost());
+    }
+
+    /**
+     * @return the fluentd port calculated from configured values, environment variable
+     *         <code>FLUENTD_SERVICE_PORT_TCP</code> and default <code>24224</code> port
+     */
+    int computeFluentdPort() {
+        return computeFluentdPort(getFluentdPort());
+    }
+
+    private static String computeFluentdHost(String fluentdHost) {
+        String host = fluentdHost != null ? fluentdHost : System.getenv("FLUENTD_SERVICE_HOST");
+        return host != null ? host : "localhost";
+    }
+
+    private static int computeFluentdPort(int fluentdPort) {
+        if (fluentdPort != 0) {
+            return fluentdPort;
+        }
+        String port = System.getenv("FLUENTD_SERVICE_PORT_TCP");
+        return port == null ? 24224 : Integer.parseInt(port);
+    }
+
+    @DataBoundSetter
+    public void setFluentdPort(int fluentdPort) {
+        this.fluentdPort = fluentdPort;
     }
 
     private void checkValue(@NonNull FormValidation formValidation) {
@@ -130,14 +197,17 @@ public class CloudWatchAwsGlobalConfiguration extends AbstractAwsGlobalConfigura
     }
 
     @RequirePOST
-    public FormValidation doValidate(@QueryParameter String logGroupName, @QueryParameter String region,
-            @QueryParameter String credentialsId) throws IOException {
+    public FormValidation doValidate(@QueryParameter String logGroupName, @QueryParameter String fluentdHost,
+            @QueryParameter int fluentdPort, @QueryParameter String region, @QueryParameter String credentialsId)
+            throws IOException {
         Jenkins.get().checkPermission(Jenkins.ADMINISTER);
-        return validate(logGroupName, Util.fixEmptyAndTrim(region), Util.fixEmptyAndTrim(credentialsId));
+        return validate(logGroupName, Util.fixEmptyAndTrim(fluentdHost), fluentdPort, Util.fixEmptyAndTrim(region),
+                Util.fixEmptyAndTrim(credentialsId));
     }
 
     @Restricted(NoExternalUse.class)
-    FormValidation validate(String logGroupName, String region, String credentialsId) throws IOException {
+    FormValidation validate(String logGroupName, String fluentdHost, int fluentdPort, String region,
+            String credentialsId) throws IOException {
         FormValidation ret = FormValidation.ok("success");
         AWSLogs client;
         try {
@@ -150,19 +220,40 @@ public class CloudWatchAwsGlobalConfiguration extends AbstractAwsGlobalConfigura
         }
 
         try {
-            filter(client, logGroupName);
+            validateCloudWatch(client, logGroupName);
         } catch (Throwable t) {
             String msg = processExceptionMessage(t);
-            ret = FormValidation.error(StringUtils.abbreviate(msg, 200));
+            ret = FormValidation.error("Unable to validate log group name: " + StringUtils.abbreviate(msg, 200));
+            return ret;
+        }
+
+        String host = computeFluentdHost(fluentdHost);
+        int port = computeFluentdPort(fluentdPort);
+        try {
+            validateFluentd(host, port);
+        } catch (Throwable t) {
+            String msg = processExceptionMessage(t);
+            ret = FormValidation.error(String.format("Unable to validate fluentd host and port (%s:%d): %s", host, port,
+                    StringUtils.abbreviate(msg, 200)));
+            return ret;
         }
         return ret;
     }
 
-    @Restricted(NoExternalUse.class)
-    protected void filter(AWSLogs client, String logGroupName) {
+    void validateCloudWatch(AWSLogs client, String logGroupName) {
         FilterLogEventsRequest request = new FilterLogEventsRequest();
         request.setLogGroupName(logGroupName);
         client.filterLogEvents(request);
     }
 
+    void validateFluentd(String fluentdHost, int fluentdPort) throws IOException {
+        // configure a sync fluentd logger so we can catch the exceptions when validating
+        SyncFlusher.Config flusherConfig = new SyncFlusher.Config().setFlushIntervalMillis(1000);
+        TCPSender sender = new TCPSender.Config().setHost(fluentdHost).setPort(fluentdPort).createInstance();
+        Fluency logger = new Fluency.Builder(sender).setFlusherConfig(flusherConfig).build();
+
+        long now = System.currentTimeMillis();
+        logger.emit("validate", EventTime.fromEpochMilli(now), Collections.emptyMap());
+        logger.flush();
+    }
 }

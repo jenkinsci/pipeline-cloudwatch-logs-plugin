@@ -24,6 +24,7 @@
 
 package io.jenkins.plugins.pipeline_log_fluentd_cloudwatch;
 
+import hudson.ExtensionList;
 import hudson.console.LineTransformationOutputStream;
 import hudson.model.BuildListener;
 import hudson.remoting.Channel;
@@ -52,31 +53,22 @@ final class FluentdLogger implements BuildListener {
     private transient @CheckForNull TimestampTracker timestampTracker;
 
     FluentdLogger(String logStreamName, String buildId, @CheckForNull String nodeId, TimestampTracker timestampTracker) {
-        this(logStreamName, buildId, nodeId, host(), port(), "master", timestampTracker);
+        this(logStreamName, buildId, nodeId, "master", timestampTracker);
     }
 
-    private static String host() {
-        String host = System.getenv("FLUENTD_SERVICE_HOST");
-        return host != null ? host : "localhost";
-    }
-
-    private static int port() {
-        String port = System.getenv("FLUENTD_SERVICE_PORT_TCP");
-        return port == null ? 24224 : Integer.parseInt(port);
-    }
-
-    private FluentdLogger(String logStreamName, String buildId, @CheckForNull String nodeId, String host, int port, String sender, TimestampTracker timestampTracker) {
+    private FluentdLogger(String logStreamName, String buildId, @CheckForNull String nodeId, String sender, TimestampTracker timestampTracker) {
         this.logStreamName = logStreamName;
         this.buildId = buildId;
         this.nodeId = nodeId;
-        this.host = host;
-        this.port = port;
         this.sender = sender;
         this.timestampTracker = timestampTracker;
+        CloudWatchAwsGlobalConfiguration configuration = ExtensionList.lookupSingleton(CloudWatchAwsGlobalConfiguration.class);
+        this.host = configuration.computeFluentdHost();
+        this.port = configuration.computeFluentdPort();
     }
 
     private Object writeReplace() {
-        return new FluentdLogger(logStreamName, buildId, nodeId, host, port, Channel.current().getName(), /* do not currently bother to record events from agent side */null);
+        return new FluentdLogger(logStreamName, buildId, nodeId, Channel.current().getName(), /* do not currently bother to record events from agent side */null);
     }
 
     @Override

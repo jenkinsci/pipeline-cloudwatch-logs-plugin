@@ -24,82 +24,15 @@
 
 package io.jenkins.plugins.pipeline_log_fluentd_cloudwatch;
 
-import static org.junit.Assert.*;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
+import java.net.ConnectException;
 
-import org.junit.Before;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.mockito.Mock;
-import org.mockito.Spy;
-import org.powermock.api.mockito.PowerMockito;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
 
-import com.amazonaws.auth.AWSCredentialsProvider;
-import com.amazonaws.auth.AWSSessionCredentials;
-import com.amazonaws.auth.AWSStaticCredentialsProvider;
-import com.amazonaws.auth.DefaultAWSCredentialsProviderChain;
-import com.amazonaws.services.logs.AWSLogsClientBuilder;
-
-import hudson.util.FormValidation;
-import io.jenkins.plugins.aws.global_configuration.CredentialsAwsGlobalConfiguration;
-import jenkins.model.Jenkins;
-
-@RunWith(PowerMockRunner.class)
-@PrepareForTest({ CredentialsAwsGlobalConfiguration.class, Jenkins.class })
-@PowerMockIgnore({ "javax.management.*", "org.apache.http.conn.ssl.*", "com.amazonaws.http.conn.ssl.*",
-        "javax.net.ssl.*" })
 public class CloudWatchAwsGlobalConfigurationTest {
 
-    private static String CREDENTIALS_ID = "CloudWatchAwsGlobalConfigurationTest";
-    private static String REGION = "us-east-1";
-
-    @Mock
-    private Jenkins jenkins;
-
-    @Spy
-    private CloudWatchAwsGlobalConfiguration config = new CloudWatchAwsGlobalConfigurationStub();
-
-    @Mock
-    private CredentialsAwsGlobalConfiguration credentialsConfig;
-
-    @Mock
-    private AWSSessionCredentials credentials;
-
-    @Before
-    public void before() throws Exception {
-        PowerMockito.mockStatic(CredentialsAwsGlobalConfiguration.class);
-        when(CredentialsAwsGlobalConfiguration.get()).thenReturn(credentialsConfig);
-        PowerMockito.mockStatic(Jenkins.class);
-        when(Jenkins.getInstance()).thenReturn(jenkins);
-
-        when(credentialsConfig.sessionCredentials(any(), eq(REGION), eq(CREDENTIALS_ID))).thenReturn(credentials);
-    }
-
-    @Test
-    public void testValidate() throws Exception {
-        FormValidation validation = config.validate("logGroup", REGION, CREDENTIALS_ID);
-        assertEquals(FormValidation.Kind.OK, validation.kind);
-        verify(config).filter(any(), eq("logGroup"));
-    }
-
-    @Test
-    public void testGetAWSLogsClientBuilderDefaultCredentials() throws Exception {
-        AWSLogsClientBuilder builder = config.getAWSLogsClientBuilder(null, null);
-        assertNull(builder.getRegion());
-        assertTrue(builder.getCredentials() instanceof DefaultAWSCredentialsProviderChain);
-    }
-
-    @Test
-    public void testGetAWSLogsClientBuilderWithCredentials() throws Exception {
-        AWSLogsClientBuilder builder = config.getAWSLogsClientBuilder(REGION, CREDENTIALS_ID);
-        assertEquals(REGION, builder.getRegion());
-        AWSCredentialsProvider credentialsProvider = builder.getCredentials();
-        assertTrue(credentialsProvider instanceof AWSStaticCredentialsProvider);
-        assertSame(credentials, credentialsProvider.getCredentials());
+    @Test(expected = ConnectException.class)
+    public void testValidateFluentd() throws Exception {
+        new CloudWatchAwsGlobalConfiguration(true).validateFluentd("localhost", 19999);
     }
 
 }
