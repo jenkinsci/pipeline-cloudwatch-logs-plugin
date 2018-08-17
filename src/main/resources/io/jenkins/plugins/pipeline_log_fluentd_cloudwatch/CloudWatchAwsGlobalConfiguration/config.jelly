@@ -6,6 +6,6 @@
             <f:textbox/>
         </f:entry>
         <f:validateButton title="Validate configuration" progress="Validating..." method="validate"
-                          with="logGroupName"/>
+                          with="logGroupName,region,credentialsId"/>
     </f:section>
 </j:jelly>
