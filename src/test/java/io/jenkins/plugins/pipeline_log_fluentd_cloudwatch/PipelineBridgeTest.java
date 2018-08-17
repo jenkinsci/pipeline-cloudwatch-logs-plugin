@@ -27,7 +27,7 @@ package io.jenkins.plugins.pipeline_log_fluentd_cloudwatch;
 import com.amazonaws.services.logs.model.AWSLogsException;
 import hudson.ExtensionList;
 import java.net.ConnectException;
-import java.net.Socket;
+import java.util.Collections;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -39,6 +39,9 @@ import static org.junit.Assume.*;
 import org.junit.Before;
 import org.junit.Rule;
 import org.jvnet.hudson.test.LoggerRule;
+import org.komamitsu.fluency.Fluency;
+import org.komamitsu.fluency.flusher.SyncFlusher;
+import org.komamitsu.fluency.sender.TCPSender;
 
 public class PipelineBridgeTest extends LogStorageTestBase {
 
@@ -50,17 +53,12 @@ public class PipelineBridgeTest extends LogStorageTestBase {
         timestampTrackers = new ConcurrentHashMap<>();
         String logGroupName = System.getenv("CLOUDWATCH_LOG_GROUP_NAME");
         assumeThat("must define $CLOUDWATCH_LOG_GROUP_NAME", logGroupName, notNullValue());
-        try {
-            new Socket(FluentdLogger.host(), FluentdLogger.port()).close();
+        try (Fluency fluency = new Fluency.Builder(new TCPSender.Config().setHost(FluentdLogger.host()).setPort(FluentdLogger.port()).createInstance()).setFlusherConfig(new SyncFlusher.Config().setFlushIntervalMillis(1000)).build()) {
+            fluency.emit("PipelineBridgeTest", Collections.singletonMap("ping", true));
+            fluency.flush();
         } catch (ConnectException x) {
             assumeNoException("set $FLUENTD_SERVICE_HOST / $FLUENTD_SERVICE_PORT_TCP as needed", x);
         }
-        /* No set of configuration options or flush calls I tried sufficed to make this throw an exception when Fluentd could not be contacted (just endless warnings in console):
-        try (Fluency fluency = Fluency.defaultFluency(FluentdLogger.host(), FluentdLogger.port())) {
-            fluency.emit("PipelineBridgeTest", Collections.singletonMap("ping", true));
-            fluency.flush();
-        }
-        */
         CloudWatchAwsGlobalConfiguration configuration = ExtensionList.lookupSingleton(CloudWatchAwsGlobalConfiguration.class);
         configuration.setLogGroupName(logGroupName);
         try {
