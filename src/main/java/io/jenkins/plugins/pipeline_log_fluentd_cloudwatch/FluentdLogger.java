@@ -24,6 +24,7 @@
 
 package io.jenkins.plugins.pipeline_log_fluentd_cloudwatch;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import hudson.console.LineTransformationOutputStream;
 import hudson.model.BuildListener;
 import hudson.remoting.Channel;
@@ -61,6 +62,7 @@ final class FluentdLogger implements BuildListener, Closeable {
     private final int port;
     private transient @CheckForNull PrintStream logger;
     private final @Nonnull String sender;
+    @SuppressFBWarnings(value = "IS2_INCONSISTENT_SYNC", justification = "Only need to synchronize initialization; thereafter it remains set.")
     private transient @CheckForNull TimestampTracker timestampTracker;
 
     FluentdLogger(@Nonnull String logStreamName, @Nonnull String buildId, @CheckForNull String nodeId, @CheckForNull TimestampTracker timestampTracker) {
@@ -134,6 +136,7 @@ final class FluentdLogger implements BuildListener, Closeable {
                 data.put("node", nodeId);
             }
             data.put("sender", sender); // for diagnostic purposes; could be dropped to avoid overhead
+            assert timestampTracker != null : "getLogger which creates FluentdOutputStream initializes it";
             long now = timestampTracker.eventSent();
             data.put("timestamp", now); // TODO pending https://github.com/fluent-plugins-nursery/fluent-plugin-cloudwatch-logs/pull/108
             logger.emit(logStreamName, EventTime.fromEpochMilli(now), data);
