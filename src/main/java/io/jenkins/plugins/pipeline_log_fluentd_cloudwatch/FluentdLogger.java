@@ -45,6 +45,11 @@ import org.komamitsu.fluency.Fluency;
  */
 final class FluentdLogger implements BuildListener, Closeable {
 
+    static {
+        // TODO pending https://github.com/komamitsu/fluency/pull/100
+        Logger.getLogger("org.komamitsu.fluency.buffer.Buffer").setLevel(Level.WARNING);
+    }
+
     private static final Logger LOGGER = Logger.getLogger(FluentdLogger.class.getName());
 
     private static final long serialVersionUID = 1;
