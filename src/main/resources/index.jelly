@@ -1,4 +1,4 @@
 <?jelly escape-by-default='true'?>
 <div>
-    A Jenkins plugin to send logs to Fluentd and retrieve them from Cloudwatch Logs
+    A Jenkins plugin to send Pipeline build logs to Fluentd and retrieve them from CloudWatch Logs.
 </div>
