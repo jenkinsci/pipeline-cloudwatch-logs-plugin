@@ -17,6 +17,7 @@
         <jenkins.version>2.121.2</jenkins.version>
         <java.level>8</java.level>
         <useBeta>true</useBeta>
+        <workflow-api-plugin.version>2.30-rc814.48e78d3fbdd9</workflow-api-plugin.version> <!-- TODO https://github.com/jenkinsci/workflow-api-plugin/pull/17 -->
         <powermock.version>1.7.1</powermock.version>
     </properties>
     <name>Pipeline Logging over fluentd + CloudWatch Plugin</name>
@@ -56,7 +57,7 @@
         <dependency>
             <groupId>org.jenkins-ci.plugins.workflow</groupId>
             <artifactId>workflow-api</artifactId>
-            <version>2.30-rc810.1d32618d6b12</version> <!-- TODO https://github.com/jenkinsci/workflow-api-plugin/pull/17 -->
+            <version>${workflow-api-plugin.version}</version>
         </dependency>
         <dependency>
             <groupId>org.komamitsu</groupId>
@@ -67,6 +68,13 @@
             <groupId>org.jenkins-ci.plugins</groupId>
             <artifactId>aws-java-sdk</artifactId>
             <version>1.11.341</version>
+        </dependency>
+        <dependency>
+            <groupId>org.jenkins-ci.plugins.workflow</groupId>
+            <artifactId>workflow-api</artifactId>
+            <version>${workflow-api-plugin.version}</version>
+            <classifier>tests</classifier>
+            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.jenkins-ci.plugins.workflow</groupId>

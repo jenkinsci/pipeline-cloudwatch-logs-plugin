@@ -25,23 +25,40 @@
 package io.jenkins.plugins.pipeline_log_fluentd_cloudwatch;
 
 import java.util.function.Function;
+import java.util.logging.Logger;
 
 /**
  * For a given build, tracks the last event timestamp known to have been sent to fluentd.
  * When serving the log for that build, if the last observed timestamp is older, we wait until CloudWatch catches up.
  * Once it does, we remove the entry since we no longer need to catch up further.
+ * <p>Also ensures that we use monotonically increasing timestamps at least for messages originating on a given node; strictly increasing up to some reasonable throughput.
  * <p>We are not bothering to persist this state, as it is only useful for a few seconds anyway.
  */
 final class TimestampTracker {
 
+    private static final Logger LOGGER = Logger.getLogger(TimestampTracker.class.getName());
+
     private long lastRecordedTimestamp;
+
+    TimestampTracker() {
+        LOGGER.fine("created new timestamp tracker");
+    }
 
     /**
      * Called when we are delivering an event to fluentd.
      */
-    synchronized void eventSent(long timestamp) {
-        if (lastRecordedTimestamp < timestamp) {
-            lastRecordedTimestamp = timestamp;
+    synchronized long eventSent() {
+        return lastRecordedTimestamp = monoticallyIncrease(lastRecordedTimestamp, System.currentTimeMillis());
+    }
+
+    /** Preferably {@code now}; {@code lastRecordedTimestamp + 1} if necessary to increase strictly; except if that would be >1s in the future, in which case nonstrictly. */
+    static long monoticallyIncrease(long lastRecordedTimestamp, long now) {
+        if (now > lastRecordedTimestamp) {
+            return now;
+        } else if (lastRecordedTimestamp > now + 1000) {
+            return lastRecordedTimestamp;
+        } else {
+            return lastRecordedTimestamp + 1;
         }
     }
 
