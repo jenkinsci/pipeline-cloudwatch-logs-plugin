@@ -8,7 +8,7 @@
         <relativePath />
     </parent>
     <groupId>io.jenkins.plugins</groupId>
-    <artifactId>pipeline-log-fluentd-cloudwatch</artifactId>
+    <artifactId>pipeline-log-fluentd-cloudwatch</artifactId> <!-- TODO minus fluentd -->
     <version>${revision}${changelist}</version>
     <packaging>hpi</packaging>
     <properties>
@@ -20,14 +20,14 @@
         <workflow-api-plugin.version>2.30-rc814.48e78d3fbdd9</workflow-api-plugin.version> <!-- TODO https://github.com/jenkinsci/workflow-api-plugin/pull/17 -->
         <powermock.version>1.7.1</powermock.version>
     </properties>
-    <name>Pipeline Logging over fluentd + CloudWatch Plugin</name>
+    <name>Pipeline Logging over CloudWatch Plugin</name>
     <licenses>
         <license>
             <name>MIT License</name>
             <url>https://opensource.org/licenses/MIT</url>
         </license>
     </licenses>
-    <url>https://wiki.jenkins.io/display/JENKINS/Pipeline+Log+Fluentd+CloudWatch+Plugin</url>
+    <url>https://wiki.jenkins.io/display/JENKINS/Pipeline+Log+Fluentd+CloudWatch+Plugin</url> <!-- TODO minus fluentd -->
     <scm>
         <connection>scm:git:git://github.com/jenkinsci/${project.artifactId}-plugin.git</connection>
         <developerConnection>scm:git:git@github.com:jenkinsci/${project.artifactId}-plugin.git</developerConnection>
@@ -56,11 +56,6 @@
             <groupId>org.jenkins-ci.plugins.workflow</groupId>
             <artifactId>workflow-api</artifactId>
             <version>${workflow-api-plugin.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.komamitsu</groupId>
-            <artifactId>fluency</artifactId>
-            <version>1.8.0</version>
         </dependency>
         <dependency>
             <groupId>org.jenkins-ci.plugins</groupId>

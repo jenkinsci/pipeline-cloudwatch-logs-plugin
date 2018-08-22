@@ -26,8 +26,6 @@ package io.jenkins.plugins.pipeline_log_fluentd_cloudwatch;
 
 import hudson.ExtensionList;
 import hudson.util.FormValidation;
-import java.net.ConnectException;
-import java.util.Collections;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -39,9 +37,6 @@ import static org.junit.Assume.*;
 import org.junit.Before;
 import org.junit.Rule;
 import org.jvnet.hudson.test.LoggerRule;
-import org.komamitsu.fluency.Fluency;
-import org.komamitsu.fluency.flusher.SyncFlusher;
-import org.komamitsu.fluency.sender.TCPSender;
 
 public class PipelineBridgeTest extends LogStorageTestBase {
 
@@ -56,13 +51,6 @@ public class PipelineBridgeTest extends LogStorageTestBase {
         FormValidation logGroupNameValidation = configuration.validate(logGroupName, null, null);
         assumeThat(logGroupNameValidation.toString(), logGroupNameValidation.kind, is(FormValidation.Kind.OK));
         configuration.setLogGroupName(logGroupName);
-        // TODO reuse form validation when #6 is merged:
-        try (Fluency fluency = new Fluency.Builder(new TCPSender.Config().setHost(FluentdLogger.host()).setPort(FluentdLogger.port()).createInstance()).setFlusherConfig(new SyncFlusher.Config().setFlushIntervalMillis(1000)).build()) {
-            fluency.emit("PipelineBridgeTest", Collections.singletonMap("ping", true));
-            fluency.flush();
-        } catch (ConnectException x) {
-            assumeNoException("set $FLUENTD_SERVICE_HOST / $FLUENTD_SERVICE_PORT_TCP as needed", x);
-        }
         timestampTrackers = new ConcurrentHashMap<>();
         id = UUID.randomUUID().toString();
     }

@@ -47,7 +47,7 @@ public final class CloudWatchWebLink implements Action {
 
     @Override
     public String getIconFileName() {
-        return "/plugin/pipeline-log-fluentd-cloudwatch/images/24x24/cloudwatch.png";
+        return "/plugin/pipeline-log-fluentd-cloudwatch/images/24x24/cloudwatch.png"; // TODO minus fluentd
     }
 
     @Override

@@ -22,7 +22,7 @@
  * THE SOFTWARE.
  */
 
-package io.jenkins.plugins.pipeline_log_fluentd_cloudwatch;
+package io.jenkins.plugins.pipeline_log_fluentd_cloudwatch; // TODO minus fluentd
 
 import hudson.Extension;
 import hudson.console.AnnotatedLargeText;
@@ -40,7 +40,7 @@ import org.jenkinsci.plugins.workflow.log.LogStorage;
 import org.jenkinsci.plugins.workflow.log.LogStorageFactory;
 
 /**
- * Binds fluentd and CloudWatch to Pipeline logs.
+ * Binds CloudWatch to Pipeline logs.
  */
 @Extension
 public final class PipelineBridge implements LogStorageFactory {
@@ -80,12 +80,12 @@ public final class PipelineBridge implements LogStorageFactory {
 
         @Override
         public BuildListener overallListener() throws IOException, InterruptedException {
-            return new FluentdLogger(logStreamName, buildId, null, timestampTracker());
+            return new CloudWatchSender(logStreamName, buildId, null, timestampTracker());
         }
 
         @Override
         public TaskListener nodeListener(FlowNode node) throws IOException, InterruptedException {
-            return new FluentdLogger(logStreamName, buildId, node.getId(), timestampTracker());
+            return new CloudWatchSender(logStreamName, buildId, node.getId(), timestampTracker());
         }
 
         @Override

@@ -27,8 +27,10 @@ package io.jenkins.plugins.pipeline_log_fluentd_cloudwatch;
 import java.util.function.Function;
 import java.util.logging.Logger;
 
+// TODO is this even still needed?
+
 /**
- * For a given build, tracks the last event timestamp known to have been sent to fluentd.
+ * For a given build, tracks the last event timestamp known to have been sent.
  * When serving the log for that build, if the last observed timestamp is older, we wait until CloudWatch catches up.
  * Once it does, we remove the entry since we no longer need to catch up further.
  * <p>Also ensures that we use monotonically increasing timestamps at least for messages originating on a given node; strictly increasing up to some reasonable throughput.
@@ -45,7 +47,7 @@ final class TimestampTracker {
     }
 
     /**
-     * Called when we are delivering an event to fluentd.
+     * Called when we are delivering an event.
      */
     synchronized long eventSent() {
         return lastRecordedTimestamp = monoticallyIncrease(lastRecordedTimestamp, System.currentTimeMillis());

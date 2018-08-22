@@ -167,7 +167,7 @@ class CloudWatchRetriever {
      */
     private boolean couldBeComplete() {
         return timestampTracker.checkCompletion(timestamp -> {
-            // Do not use withStartTime(timestamp) as the fluentd bridge currently truncates milliseconds (see below).
+            // TODO consider withStartTime(timestamp)
             if (client.filterLogEvents(createFilter().withFilterPattern("{$.timestamp = " + timestamp + "}").withLimit(1)).getEvents().isEmpty()) {
                 LOGGER.log(Level.FINE, "{0} contains no event in {1} with timestamp={2}", new Object[] {logGroupName, logStreamName, timestamp});
                 return false;
@@ -192,7 +192,7 @@ class CloudWatchRetriever {
                     token = result.getNextToken();
                     List<FilteredLogEvent> events = result.getEvents();
                     LOGGER.log(Level.FINER, "event count {0} from group={1} stream={2} buildId={3} nodeId={4}", new Object[] {events.size(), logGroupName, logStreamName, buildId, nodeId});
-                    // TODO pending https://github.com/fluent-plugins-nursery/fluent-plugin-cloudwatch-logs/pull/108:
+                    // TODO remove timestamp from JSON
                     events.sort(Comparator.comparingLong(e -> JSONObject.fromObject(e.getMessage()).optLong("timestamp", e.getTimestamp())));
                     for (FilteredLogEvent event : events) {
                         // TODO perhaps translate event.timestamp to a TimestampNote
