@@ -131,13 +131,16 @@ final class CloudWatchSender implements BuildListener, Closeable {
         String remotedAccessKeyId, remotedSecretAccessKey, remotedSessionToken;
         if (masterCredentials instanceof AWSSessionCredentials) {
             // otherwise would get AWSSecurityTokenServiceException: Cannot call GetFederationToken with session credentials
+            // TODO try to use AssumeRule with a policy instead, if we have explicit credentials with a role; see AWSCredentialsImpl.getIamRoleArn/createAssumeRoleRequest
+            // (assuming this can work without MFA every time)
             remotedAccessKeyId = masterCredentials.getAWSAccessKeyId();
             remotedSecretAccessKey = masterCredentials.getAWSSecretKey();
             remotedSessionToken = ((AWSSessionCredentials) masterCredentials).getSessionToken();
         } else {
             // TODO will need to rerun this on master side upon expiration of token:
             GetFederationTokenResult r = builder.build().getFederationToken(new GetFederationTokenRequest().
-                    // TODO withPolicy restricting agent to PutLogEvents, and maybe DescribeLogStreams (unless the sequence token seeding is done on the master, or see below)
+                    // TODO withPolicy restricting agent to PutLogEvents
+                    // TODO uniquify name better; maybe generate random suffix?
                     withName((logStreamName + "-" + agentName).replaceAll("[^a-zA-Z0-9_=,.@-]+", "_").replaceFirst("(.{0,32}).*", "$1")));
             Credentials credentials = r.getCredentials();
             remotedAccessKeyId = credentials.getAccessKeyId();
@@ -188,6 +191,11 @@ final class CloudWatchSender implements BuildListener, Closeable {
 
     private synchronized String lastSequenceToken() {
         if (sequenceToken == null) {
+            // TODO as per https://stackoverflow.com/a/32947579/12916 this is all wrong and we sometimes get InvalidSequenceTokenException between logging nodes
+            // rather create a stream per job × node, for example jenkinsci/git-plugin/master@master or jenkinsci/git-plugin/master@node7
+            // (avoiding actual node names since for elastic clouds they are liable to be random UUIDs, causing log stream pollution)
+            // (and taking care to escape [:*@%] in job names using %XX URL encoding)
+            // and then merge streams in CloudWatchRetriever using the interleaved flag after using DescribeLogStreams on jenkinsci/git-plugin/master@
             DescribeLogStreamsResult r = client.describeLogStreams(new DescribeLogStreamsRequest(logGroupName).withLogStreamNamePrefix(logStreamName));
             // TODO handle paging, in case we have a lot of similarly-named jobs
             for (LogStream ls : r.getLogStreams()) {
@@ -209,10 +217,11 @@ final class CloudWatchSender implements BuildListener, Closeable {
             if (nodeId != null) {
                 data.put("node", nodeId);
             }
-            data.put("sender", sender); // for diagnostic purposes; could be dropped to avoid overhead
+            data.put("sender", sender); // TODO remove once we have log stream per node
             assert timestampTracker != null : "getLogger which creates CloudWatchOutputStream initializes it";
             long now = timestampTracker.eventSent();
             data.put("timestamp", now); // TODO remove
+            // TODO buffer messages and send asynchronously
             PutLogEventsResult result = client.putLogEvents(new PutLogEventsRequest().
                     withLogGroupName(logGroupName).
                     withLogStreamName(logStreamName).
@@ -221,8 +230,6 @@ final class CloudWatchSender implements BuildListener, Closeable {
                             withTimestamp(now).
                             withMessage(JSONObject.fromObject(data).toString())));
             LOGGER.log(Level.FINE, "result: {0}", result); // TODO how do we know if it was successful or not?
-            // TODO handle an InvalidSequenceTokenException between logging nodes
-            // or maybe need to CreateLogGroup per job (or build) and a log stream per node? or a stream per job × node (patching also CloudWatchWebLink)? https://stackoverflow.com/a/32947579/12916
             synchronized (CloudWatchSender.this) {
                 sequenceToken = result.getNextSequenceToken();
             }

@@ -27,8 +27,6 @@ package io.jenkins.plugins.pipeline_log_fluentd_cloudwatch;
 import java.util.function.Function;
 import java.util.logging.Logger;
 
-// TODO is this even still needed?
-
 /**
  * For a given build, tracks the last event timestamp known to have been sent.
  * When serving the log for that build, if the last observed timestamp is older, we wait until CloudWatch catches up.
