@@ -162,6 +162,7 @@ public class CloudWatchAwsGlobalConfiguration extends AbstractAwsGlobalConfigura
     protected void filter(AWSLogs client, String logGroupName) {
         FilterLogEventsRequest request = new FilterLogEventsRequest();
         request.setLogGroupName(logGroupName);
+        // TODO this returns a ton of data, when all we care about is that the request does not fail; filter it down to just a few results
         client.filterLogEvents(request);
     }
 

@@ -28,7 +28,6 @@ import com.amazonaws.auth.AWSCredentials;
 import com.amazonaws.auth.AWSSessionCredentials;
 import com.amazonaws.auth.AWSStaticCredentialsProvider;
 import com.amazonaws.auth.BasicSessionCredentials;
-import com.amazonaws.auth.DefaultAWSCredentialsProviderChain;
 import com.amazonaws.services.logs.AWSLogs;
 import com.amazonaws.services.logs.AWSLogsClientBuilder;
 import com.amazonaws.services.logs.model.DescribeLogStreamsRequest;
@@ -38,9 +37,12 @@ import com.amazonaws.services.logs.model.LogStream;
 import com.amazonaws.services.logs.model.PutLogEventsRequest;
 import com.amazonaws.services.logs.model.PutLogEventsResult;
 import com.amazonaws.services.securitytoken.AWSSecurityTokenServiceClientBuilder;
+import com.amazonaws.services.securitytoken.model.AssumeRoleRequest;
+import com.amazonaws.services.securitytoken.model.AssumeRoleResult;
 import com.amazonaws.services.securitytoken.model.Credentials;
 import com.amazonaws.services.securitytoken.model.GetFederationTokenRequest;
 import com.amazonaws.services.securitytoken.model.GetFederationTokenResult;
+import com.cloudbees.jenkins.plugins.awscredentials.AmazonWebServicesCredentials;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import hudson.AbortException;
 import hudson.ExtensionList;
@@ -113,41 +115,65 @@ final class CloudWatchSender implements BuildListener, Closeable {
 
     private Object writeReplace() throws IOException {
         AWSSecurityTokenServiceClientBuilder builder = AWSSecurityTokenServiceClientBuilder.standard();
-        // TODO is this whole dance not abstractable? .sessionCredentials()?
         CredentialsAwsGlobalConfiguration credentialsConfig = CredentialsAwsGlobalConfiguration.get();
         String region = credentialsConfig.getRegion();
         if (region != null) {
             builder = builder.withRegion(region);
         }
-        String credentialsId = credentialsConfig.getCredentialsId();
-        if (credentialsId != null) {
-            AWSStaticCredentialsProvider credentialsProvider = new AWSStaticCredentialsProvider(credentialsConfig.sessionCredentials(builder, region, credentialsId));
+        AmazonWebServicesCredentials jenkinsCredentials = credentialsConfig.getCredentials();
+        if (jenkinsCredentials != null) {
+            AWSStaticCredentialsProvider credentialsProvider = new AWSStaticCredentialsProvider(jenkinsCredentials.getCredentials());
             builder.withCredentials(credentialsProvider);
-        } else {
-            builder.withCredentials(new DefaultAWSCredentialsProviderChain());
         }
         String agentName = Channel.current().getName();
         AWSCredentials masterCredentials = builder.getCredentials().getCredentials();
         String remotedAccessKeyId, remotedSecretAccessKey, remotedSessionToken;
         if (masterCredentials instanceof AWSSessionCredentials) {
-            // otherwise would get AWSSecurityTokenServiceException: Cannot call GetFederationToken with session credentials
-            // TODO try to use AssumeRule with a policy instead, if we have explicit credentials with a role; see AWSCredentialsImpl.getIamRoleArn/createAssumeRoleRequest
-            // (assuming this can work without MFA every time)
-            remotedAccessKeyId = masterCredentials.getAWSAccessKeyId();
-            remotedSecretAccessKey = masterCredentials.getAWSSecretKey();
-            remotedSessionToken = ((AWSSessionCredentials) masterCredentials).getSessionToken();
+            // otherwise would just throw AWSSecurityTokenServiceException: Cannot call GetFederationToken with session credentials
+            // TODO just check for ((AWSCredentialsImpl) jenkinsCredentials).getIamRoleArn() if that is fixed to use the default provider chain
+            String role = System.getenv("AWS_ROLE");
+            if (role != null) {
+                // TODO would be cleaner if AmazonWebServicesCredentials had a getCredentials overload taking a policy
+                builder = AWSSecurityTokenServiceClientBuilder.standard();
+                if (region != null) {
+                    builder = builder.withRegion(region);
+                }
+                // TODO will need to rerun this on master side upon expiration of token:
+                AssumeRoleResult r = builder.build().assumeRole(new AssumeRoleRequest().
+                        withRoleArn(role).
+                        withRoleSessionName("CloudWatchSender"). // TODO does this need to be unique?
+                        withPolicy(policy()));
+                Credentials credentials = r.getCredentials();
+                remotedAccessKeyId = credentials.getAccessKeyId();
+                remotedSecretAccessKey = credentials.getSecretAccessKey();
+                remotedSessionToken = credentials.getSessionToken();
+                LOGGER.log(Level.FINE, "AssumeRole succeeded; using {0}", remotedAccessKeyId);
+            } else {
+                remotedAccessKeyId = masterCredentials.getAWSAccessKeyId();
+                remotedSecretAccessKey = masterCredentials.getAWSSecretKey();
+                remotedSessionToken = ((AWSSessionCredentials) masterCredentials).getSessionToken();
+                LOGGER.log(Level.WARNING, "Giving up on limiting session credentials to a policy; using {0} as is", remotedAccessKeyId);
+            }
         } else {
             // TODO will need to rerun this on master side upon expiration of token:
             GetFederationTokenResult r = builder.build().getFederationToken(new GetFederationTokenRequest().
-                    // TODO withPolicy restricting agent to PutLogEvents
-                    // TODO uniquify name better; maybe generate random suffix?
-                    withName((logStreamName + "-" + agentName).replaceAll("[^a-zA-Z0-9_=,.@-]+", "_").replaceFirst("(.{0,32}).*", "$1")));
+                    withName("CloudWatchSender"). // TODO as above?
+                    withPolicy(policy()));
             Credentials credentials = r.getCredentials();
             remotedAccessKeyId = credentials.getAccessKeyId();
             remotedSecretAccessKey = credentials.getSecretAccessKey();
             remotedSessionToken = credentials.getSessionToken();
+            LOGGER.log(Level.FINE, "GetFederationToken succeeded; using {0}", remotedAccessKeyId);
         }
         return new CloudWatchSender(logGroupName, logStreamName, buildId, nodeId, agentName, /* do not currently bother to record events from agent side */null, remotedAccessKeyId, remotedSecretAccessKey, remotedSessionToken, region);
+    }
+
+    /** @see <a href="https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/iam-access-control-overview-cwl.html">Reference</a> */
+    private String policy() {
+        return "{\"Version\": \"2012-10-17\", \"Statement\": [" +
+                "{\"Effect\": \"Allow\", \"Action\": [\"logs:PutLogEvents\"], \"Resource\": [\"arn:aws:logs:*:*:log-group:" + logGroupName + ":log-stream:" + logStreamName + "\"]}, " +
+                "{\"Effect\": \"Allow\", \"Action\": [\"logs:DescribeLogStreams\"], \"Resource\": [\"arn:aws:logs:*:*:log-group:" + logGroupName + ":log-stream:*\"]}" + // TODO delete
+                "]}";
     }
 
     @Override
@@ -221,7 +247,7 @@ final class CloudWatchSender implements BuildListener, Closeable {
             assert timestampTracker != null : "getLogger which creates CloudWatchOutputStream initializes it";
             long now = timestampTracker.eventSent();
             data.put("timestamp", now); // TODO remove
-            // TODO buffer messages and send asynchronously
+            // TODO buffer messages and send asynchronously (which will make TimestampTracker necessary again)
             PutLogEventsResult result = client.putLogEvents(new PutLogEventsRequest().
                     withLogGroupName(logGroupName).
                     withLogStreamName(logStreamName).
