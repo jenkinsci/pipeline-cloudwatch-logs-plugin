@@ -24,6 +24,11 @@
 
 package io.jenkins.plugins.pipeline_log_fluentd_cloudwatch;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
+import hudson.console.LineTransformationOutputStream;
+import hudson.model.BuildListener;
+import hudson.remoting.Channel;
+import java.io.Closeable;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.io.UnsupportedEncodingException;
@@ -31,6 +36,11 @@ import java.util.Map;
 
 import javax.annotation.CheckForNull;
 
+import java.util.Objects;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import javax.annotation.CheckForNull;
+import javax.annotation.Nonnull;
 import org.komamitsu.fluency.EventTime;
 import org.komamitsu.fluency.Fluency;
 
@@ -42,20 +52,28 @@ import hudson.remoting.Channel;
 /**
  * Sends Pipeline build log lines to fluentd.
  */
-final class FluentdLogger implements BuildListener {
+final class FluentdLogger implements BuildListener, Closeable {
+
+    static {
+        // TODO pending https://github.com/komamitsu/fluency/pull/100
+        Logger.getLogger("org.komamitsu.fluency.buffer.Buffer").setLevel(Level.WARNING);
+    }
+
+    private static final Logger LOGGER = Logger.getLogger(FluentdLogger.class.getName());
 
     private static final long serialVersionUID = 1;
 
-    private final String logStreamName;
-    private final String buildId;
+    private final @Nonnull String logStreamName;
+    private final @Nonnull String buildId;
     private final @CheckForNull String nodeId;
-    private final String host;
+    private final @Nonnull String host;
     private final int port;
-    private transient PrintStream logger;
-    private final String sender;
+    private transient @CheckForNull PrintStream logger;
+    private final @Nonnull String sender;
+    @SuppressFBWarnings(value = "IS2_INCONSISTENT_SYNC", justification = "Only need to synchronize initialization; thereafter it remains set.")
     private transient @CheckForNull TimestampTracker timestampTracker;
 
-    FluentdLogger(String logStreamName, String buildId, @CheckForNull String nodeId, TimestampTracker timestampTracker) {
+    FluentdLogger(@Nonnull String logStreamName, @Nonnull String buildId, @CheckForNull String nodeId, @CheckForNull TimestampTracker timestampTracker) {
         this(logStreamName, buildId, nodeId, host(), port(), "master", timestampTracker);
     }
 
@@ -71,11 +89,11 @@ final class FluentdLogger implements BuildListener {
         return configuration.computeFluentdPort();
     }
 
-    private FluentdLogger(String logStreamName, String buildId, @CheckForNull String nodeId, String host, int port, String sender, TimestampTracker timestampTracker) {
-        this.logStreamName = logStreamName;
-        this.buildId = buildId;
+    private FluentdLogger(@Nonnull String logStreamName, @Nonnull String buildId, @CheckForNull String nodeId, @Nonnull String host, int port, @Nonnull String sender, @CheckForNull TimestampTracker timestampTracker) {
+        this.logStreamName = Objects.requireNonNull(logStreamName);
+        this.buildId = Objects.requireNonNull(buildId);
         this.nodeId = nodeId;
-        this.host = host;
+        this.host = Objects.requireNonNull(host);
         this.port = port;
         this.sender = sender;
         this.timestampTracker = timestampTracker;
@@ -86,8 +104,11 @@ final class FluentdLogger implements BuildListener {
     }
 
     @Override
-    public PrintStream getLogger() {
+    public synchronized PrintStream getLogger() {
         if (logger == null) {
+            if (timestampTracker == null) {
+                timestampTracker = new TimestampTracker(); // need to serialize messages though we are not coördinating with CloudWatchRetriever on the master side
+            }
             try {
                 logger = new PrintStream(new FluentdOutputStream(), true, "UTF-8");
             } catch (UnsupportedEncodingException x) {
@@ -95,6 +116,14 @@ final class FluentdLogger implements BuildListener {
             }
         }
         return logger;
+    }
+
+    @Override
+    public synchronized void close() throws IOException {
+        if (logger != null) {
+            logger.close();
+            logger = null;
+        }
     }
 
     private class FluentdOutputStream extends LineTransformationOutputStream {
@@ -117,12 +146,11 @@ final class FluentdLogger implements BuildListener {
                 data.put("node", nodeId);
             }
             data.put("sender", sender); // for diagnostic purposes; could be dropped to avoid overhead
-            long now = System.currentTimeMillis();
+            assert timestampTracker != null : "getLogger which creates FluentdOutputStream initializes it";
+            long now = timestampTracker.eventSent();
             data.put("timestamp", now); // TODO pending https://github.com/fluent-plugins-nursery/fluent-plugin-cloudwatch-logs/pull/108
             logger.emit(logStreamName, EventTime.fromEpochMilli(now), data);
-            if (timestampTracker != null) {
-                timestampTracker.eventSent(now);
-            }
+            LOGGER.log(Level.FINER, "sent event @{0} from {1}/{2}#{3}", new Object[] {now, logStreamName, buildId, nodeId});
         }
 
         @Override

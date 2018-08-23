@@ -63,35 +63,53 @@ public final class PipelineBridge implements LogStorageFactory {
         } catch (IOException x) {
             return new BrokenLogStorage(x);
         }
-        return new LogStorage() {
-            @Override
-            public BuildListener overallListener() throws IOException, InterruptedException {
-                return new FluentdLogger(logStreamName, buildId, null, timestampTracker());
+        return new LogStorageImpl(logStreamName, buildId, timestampTrackers);
+    }
+    
+    static class LogStorageImpl implements LogStorage {
+
+        private final String logStreamName;
+        private final String buildId;
+        private final Map<String, TimestampTracker> timestampTrackers;
+
+        LogStorageImpl(String logStreamName, String buildId, Map<String, TimestampTracker> timestampTrackers) {
+            this.logStreamName = logStreamName;
+            this.buildId = buildId;
+            this.timestampTrackers = timestampTrackers;
+        }
+
+        @Override
+        public BuildListener overallListener() throws IOException, InterruptedException {
+            return new FluentdLogger(logStreamName, buildId, null, timestampTracker());
+        }
+
+        @Override
+        public TaskListener nodeListener(FlowNode node) throws IOException, InterruptedException {
+            return new FluentdLogger(logStreamName, buildId, node.getId(), timestampTracker());
+        }
+
+        @Override
+        public AnnotatedLargeText<FlowExecutionOwner.Executable> overallLog(FlowExecutionOwner.Executable build, boolean complete) {
+            try {
+                return new CloudWatchRetriever(logStreamName, buildId, timestampTracker()).overallLog(build, complete);
+            } catch (Exception x) {
+                return new BrokenLogStorage(x).overallLog(build, complete);
             }
-            @Override
-            public TaskListener nodeListener(FlowNode node) throws IOException, InterruptedException {
-                return new FluentdLogger(logStreamName, buildId, node.getId(), timestampTracker());
+        }
+
+        @Override
+        public AnnotatedLargeText<FlowNode> stepLog(FlowNode node, boolean complete) {
+            try {
+                return new CloudWatchRetriever(logStreamName, buildId, timestampTracker()).stepLog(node, complete);
+            } catch (Exception x) {
+                return new BrokenLogStorage(x).stepLog(node, complete);
             }
-            @Override
-            public AnnotatedLargeText<FlowExecutionOwner.Executable> overallLog(FlowExecutionOwner.Executable build, boolean complete) {
-                try {
-                    return new CloudWatchRetriever(logStreamName, buildId, timestampTracker()).overallLog(build, complete);
-                } catch (Exception x) {
-                    return new BrokenLogStorage(x).overallLog(build, complete);
-                }
-            }
-            @Override
-            public AnnotatedLargeText<FlowNode> stepLog(FlowNode node, boolean complete) {
-                try {
-                    return new CloudWatchRetriever(logStreamName, buildId, timestampTracker()).stepLog(node, complete);
-                } catch (Exception x) {
-                    return new BrokenLogStorage(x).stepLog(node, complete);
-                }
-            }
-            private TimestampTracker timestampTracker() {
-                return timestampTrackers.computeIfAbsent(logStreamName + "#" + buildId, k -> new TimestampTracker());
-            }
-        };
+        }
+
+        private TimestampTracker timestampTracker() {
+            return timestampTrackers.computeIfAbsent(logStreamName + "#" + buildId, k -> new TimestampTracker());
+        }
+
     }
 
 }

@@ -208,7 +208,7 @@ public class CloudWatchAwsGlobalConfiguration extends AbstractAwsGlobalConfigura
     }
 
     @Restricted(NoExternalUse.class)
-    FormValidation validate(String logGroupName, String fluentdHost, int fluentdPort, String region,
+    FormValidation validate(String logGroupName, String fluentdHost, Integer fluentdPort, String region,
             String credentialsId) throws IOException {
         FormValidation ret = FormValidation.ok("success");
         AWSLogs client;
