@@ -111,6 +111,7 @@ public class CloudWatchAwsGlobalConfiguration extends AbstractAwsGlobalConfigura
     @DataBoundSetter
     public void setFluentdHost(String fluentdHost) {
         this.fluentdHost = fluentdHost;
+        save();
     }
 
     public int getFluentdPort() {
@@ -149,6 +150,7 @@ public class CloudWatchAwsGlobalConfiguration extends AbstractAwsGlobalConfigura
     @DataBoundSetter
     public void setFluentdPort(int fluentdPort) {
         this.fluentdPort = fluentdPort;
+        save();
     }
 
     private void checkValue(@NonNull FormValidation formValidation) {
