@@ -30,7 +30,7 @@ import org.junit.Test;
 
 public class CloudWatchAwsGlobalConfigurationTest {
 
-    @Test(expected = ConnectException.class)
+    @Test(expected = ConnectException.class) // port 19999 should be unused
     public void testValidateFluentd() throws Exception {
         new CloudWatchAwsGlobalConfiguration(true).validateFluentd("localhost", 19999);
     }
