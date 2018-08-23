@@ -24,17 +24,20 @@
 
 package io.jenkins.plugins.pipeline_log_fluentd_cloudwatch;
 
-import hudson.ExtensionList;
-import hudson.console.LineTransformationOutputStream;
-import hudson.model.BuildListener;
-import hudson.remoting.Channel;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.io.UnsupportedEncodingException;
 import java.util.Map;
+
 import javax.annotation.CheckForNull;
+
 import org.komamitsu.fluency.EventTime;
 import org.komamitsu.fluency.Fluency;
+
+import hudson.ExtensionList;
+import hudson.console.LineTransformationOutputStream;
+import hudson.model.BuildListener;
+import hudson.remoting.Channel;
 
 /**
  * Sends Pipeline build log lines to fluentd.
@@ -53,22 +56,33 @@ final class FluentdLogger implements BuildListener {
     private transient @CheckForNull TimestampTracker timestampTracker;
 
     FluentdLogger(String logStreamName, String buildId, @CheckForNull String nodeId, TimestampTracker timestampTracker) {
-        this(logStreamName, buildId, nodeId, "master", timestampTracker);
+        this(logStreamName, buildId, nodeId, host(), port(), "master", timestampTracker);
     }
 
-    private FluentdLogger(String logStreamName, String buildId, @CheckForNull String nodeId, String sender, TimestampTracker timestampTracker) {
+    private static String host() {
+        CloudWatchAwsGlobalConfiguration configuration = ExtensionList
+                .lookupSingleton(CloudWatchAwsGlobalConfiguration.class);
+        return configuration.computeFluentdHost();
+    }
+
+    private static int port() {
+        CloudWatchAwsGlobalConfiguration configuration = ExtensionList
+                .lookupSingleton(CloudWatchAwsGlobalConfiguration.class);
+        return configuration.computeFluentdPort();
+    }
+
+    private FluentdLogger(String logStreamName, String buildId, @CheckForNull String nodeId, String host, int port, String sender, TimestampTracker timestampTracker) {
         this.logStreamName = logStreamName;
         this.buildId = buildId;
         this.nodeId = nodeId;
+        this.host = host;
+        this.port = port;
         this.sender = sender;
         this.timestampTracker = timestampTracker;
-        CloudWatchAwsGlobalConfiguration configuration = ExtensionList.lookupSingleton(CloudWatchAwsGlobalConfiguration.class);
-        this.host = configuration.computeFluentdHost();
-        this.port = configuration.computeFluentdPort();
     }
 
     private Object writeReplace() {
-        return new FluentdLogger(logStreamName, buildId, nodeId, Channel.current().getName(), /* do not currently bother to record events from agent side */null);
+        return new FluentdLogger(logStreamName, buildId, nodeId, host, port, Channel.current().getName(), /* do not currently bother to record events from agent side */null);
     }
 
     @Override
