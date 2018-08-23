@@ -81,7 +81,7 @@ public class CloudWatchAwsGlobalConfiguration extends AbstractAwsGlobalConfigura
     /**
      * Fluentd port.
      */
-    private int fluentdPort;
+    private Integer fluentdPort;
 
     public CloudWatchAwsGlobalConfiguration() {
         load();
@@ -114,7 +114,7 @@ public class CloudWatchAwsGlobalConfiguration extends AbstractAwsGlobalConfigura
         save();
     }
 
-    public int getFluentdPort() {
+    public Integer getFluentdPort() {
         return fluentdPort;
     }
 
@@ -148,7 +148,7 @@ public class CloudWatchAwsGlobalConfiguration extends AbstractAwsGlobalConfigura
     }
 
     @DataBoundSetter
-    public void setFluentdPort(int fluentdPort) {
+    public void setFluentdPort(Integer fluentdPort) {
         this.fluentdPort = fluentdPort;
         save();
     }
