@@ -54,6 +54,7 @@ import com.amazonaws.services.logs.model.FilterLogEventsRequest;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
 import hudson.Extension;
+import hudson.ExtensionList;
 import hudson.Util;
 import hudson.model.Failure;
 import hudson.util.FormValidation;
@@ -91,6 +92,11 @@ public class CloudWatchAwsGlobalConfiguration extends AbstractAwsGlobalConfigura
      * Testing only
      */
     CloudWatchAwsGlobalConfiguration(boolean test) {
+    }
+
+    @Nonnull
+    public static CloudWatchAwsGlobalConfiguration get() {
+        return ExtensionList.lookupSingleton(CloudWatchAwsGlobalConfiguration.class);
     }
 
     public String getLogGroupName() {
