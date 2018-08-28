@@ -25,6 +25,7 @@
 package io.jenkins.plugins.pipeline_log_fluentd_cloudwatch;
 
 import com.amazonaws.auth.AWSCredentials;
+import com.amazonaws.auth.AWSCredentialsProvider;
 import com.amazonaws.auth.AWSSessionCredentials;
 import com.amazonaws.auth.AWSStaticCredentialsProvider;
 import com.amazonaws.auth.BasicSessionCredentials;
@@ -126,7 +127,8 @@ final class CloudWatchSender implements BuildListener, Closeable {
             builder.withCredentials(credentialsProvider);
         }
         String agentName = Channel.current().getName();
-        AWSCredentials masterCredentials = builder.getCredentials().getCredentials();
+        AWSCredentialsProvider credentialsProvider = builder.getCredentials();
+        AWSCredentials masterCredentials = credentialsProvider != null ? credentialsProvider.getCredentials() : null;
         String remotedAccessKeyId, remotedSecretAccessKey, remotedSessionToken;
         if (masterCredentials instanceof AWSSessionCredentials) {
             // otherwise would just throw AWSSecurityTokenServiceException: Cannot call GetFederationToken with session credentials
