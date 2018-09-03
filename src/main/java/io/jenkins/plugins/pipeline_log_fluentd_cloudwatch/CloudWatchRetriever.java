@@ -202,7 +202,12 @@ class CloudWatchRetriever {
         try (Writer w = new OutputStreamWriter(os, StandardCharsets.UTF_8)) {
             String token = null;
                 do {
-                    FilterLogEventsResult result = client.filterLogEvents(createFilter().withFilterPattern("{$.build = \"" + buildId + (nodeId == null ? "" : "\" && $.node = \"" + nodeId) + "\"}").withNextToken(token));
+                    FilterLogEventsResult result;
+                    try {
+                        result = client.filterLogEvents(createFilter().withFilterPattern("{$.build = \"" + buildId + (nodeId == null ? "" : "\" && $.node = \"" + nodeId) + "\"}").withNextToken(token));
+                    } catch (ResourceNotFoundException e) {
+                        throw new IOException(String.format("Unable to find log group \"%s\" or log stream \"%s\"", logGroupName, logStreamName), e);
+                    }
                     token = result.getNextToken();
                     List<FilteredLogEvent> events = result.getEvents();
                     LOGGER.log(Level.FINER, "event count {0} from group={1} stream={2} buildId={3} nodeId={4}", new Object[] {events.size(), logGroupName, logStreamName, buildId, nodeId});
