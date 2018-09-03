@@ -52,6 +52,7 @@ import com.amazonaws.services.logs.AWSLogs;
 import com.amazonaws.services.logs.AWSLogsClientBuilder;
 import com.amazonaws.services.logs.model.FilterLogEventsRequest;
 
+import edu.umd.cs.findbugs.annotations.CheckForNull;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import hudson.Extension;
 import hudson.ExtensionList;
@@ -145,8 +146,8 @@ public class CloudWatchAwsGlobalConfiguration extends AbstractAwsGlobalConfigura
         return host != null ? host : "localhost";
     }
 
-    private static int computeFluentdPort(int fluentdPort) {
-        if (fluentdPort != 0) {
+    private static int computeFluentdPort(@CheckForNull Integer fluentdPort) {
+        if (fluentdPort != null && fluentdPort > 0) {
             return fluentdPort;
         }
         String port = System.getenv("FLUENTD_SERVICE_PORT_TCP");
