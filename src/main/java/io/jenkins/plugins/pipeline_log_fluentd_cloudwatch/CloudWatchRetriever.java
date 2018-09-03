@@ -47,6 +47,7 @@ import com.amazonaws.services.logs.AWSLogs;
 import com.amazonaws.services.logs.model.FilterLogEventsRequest;
 import com.amazonaws.services.logs.model.FilterLogEventsResult;
 import com.amazonaws.services.logs.model.FilteredLogEvent;
+import com.amazonaws.services.logs.model.ResourceNotFoundException;
 
 import hudson.AbortException;
 import hudson.ExtensionList;
@@ -168,7 +169,14 @@ class CloudWatchRetriever {
     private boolean couldBeComplete() {
         return timestampTracker.checkCompletion(timestamp -> {
             // Do not use withStartTime(timestamp) as the fluentd bridge currently truncates milliseconds (see below).
-            if (client.filterLogEvents(createFilter().withFilterPattern("{$.timestamp = " + timestamp + "}").withLimit(1)).getEvents().isEmpty()) {
+            List<FilteredLogEvent> events;
+            try {
+                events = client.filterLogEvents(createFilter().withFilterPattern("{$.timestamp = " + timestamp + "}").withLimit(1)).getEvents();
+            } catch (ResourceNotFoundException e) {
+                LOGGER.log(Level.FINE, "{0} or its stream {1} do not exist: {2}", new Object[] {logGroupName, logStreamName, e.getMessage()});
+                return false;
+            }
+            if (events.isEmpty()) {
                 LOGGER.log(Level.FINE, "{0} contains no event in {1} with timestamp={2}", new Object[] {logGroupName, logStreamName, timestamp});
                 return false;
             } else {
