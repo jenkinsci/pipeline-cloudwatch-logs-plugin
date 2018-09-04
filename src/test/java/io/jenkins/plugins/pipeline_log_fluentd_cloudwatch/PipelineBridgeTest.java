@@ -44,7 +44,7 @@ import org.komamitsu.fluency.Fluency;
 import org.komamitsu.fluency.flusher.SyncFlusher;
 import org.komamitsu.fluency.sender.TCPSender;
 
-import com.amazonaws.services.cloudwatch.model.ResourceNotFoundException;
+import com.amazonaws.services.logs.model.ResourceNotFoundException;
 import com.amazonaws.services.logs.AWSLogs;
 import com.amazonaws.services.logs.model.FilterLogEventsRequest;
 import com.amazonaws.services.logs.model.FilterLogEventsResult;
