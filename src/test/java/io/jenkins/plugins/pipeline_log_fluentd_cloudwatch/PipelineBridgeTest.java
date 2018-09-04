@@ -24,18 +24,19 @@
 
 package io.jenkins.plugins.pipeline_log_fluentd_cloudwatch;
 
-import hudson.ExtensionList;
-import hudson.util.FormValidation;
+import static org.hamcrest.Matchers.*;
+import static org.junit.Assert.*;
+import static org.junit.Assume.*;
+
 import java.net.ConnectException;
 import java.util.Collections;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
-import static org.hamcrest.Matchers.*;
+
 import org.jenkinsci.plugins.workflow.log.LogStorage;
 import org.jenkinsci.plugins.workflow.log.LogStorageTestBase;
-import static org.junit.Assume.*;
 import org.junit.Before;
 import org.junit.Rule;
 import org.jvnet.hudson.test.LoggerRule;
@@ -43,7 +44,17 @@ import org.komamitsu.fluency.Fluency;
 import org.komamitsu.fluency.flusher.SyncFlusher;
 import org.komamitsu.fluency.sender.TCPSender;
 
+import com.amazonaws.services.logs.model.ResourceNotFoundException;
+import com.amazonaws.services.logs.AWSLogs;
+import com.amazonaws.services.logs.model.FilterLogEventsRequest;
+import com.amazonaws.services.logs.model.FilterLogEventsResult;
+
+import hudson.ExtensionList;
+import hudson.util.FormValidation;
+
 public class PipelineBridgeTest extends LogStorageTestBase {
+
+    private static final String LOG_STREAM_NAME = "PipelineBridgeTest";
 
     @Rule public LoggerRule logging = new LoggerRule().recordPackage(PipelineBridge.class, Level.FINER);
     private Map<String, TimestampTracker> timestampTrackers;
@@ -58,17 +69,25 @@ public class PipelineBridgeTest extends LogStorageTestBase {
         configuration.setLogGroupName(logGroupName);
         // TODO reuse form validation when #6 is merged:
         try (Fluency fluency = new Fluency.Builder(new TCPSender.Config().setHost(FluentdLogger.host()).setPort(FluentdLogger.port()).createInstance()).setFlusherConfig(new SyncFlusher.Config().setFlushIntervalMillis(1000)).build()) {
-            fluency.emit("PipelineBridgeTest", Collections.singletonMap("ping", true));
+            fluency.emit(LOG_STREAM_NAME, Collections.singletonMap("ping", true));
             fluency.flush();
         } catch (ConnectException x) {
             assumeNoException("set $FLUENTD_SERVICE_HOST / $FLUENTD_SERVICE_PORT_TCP as needed", x);
+        }
+        AWSLogs client = configuration.getAWSLogsClientBuilder().build();
+        try {
+            FilterLogEventsResult events = client.filterLogEvents(
+                    new FilterLogEventsRequest().withLogGroupName(logGroupName).withLogStreamNames(LOG_STREAM_NAME));
+            assertThat("Event didn't reach CloudWatch", events.getEvents(), not(empty()));
+        } catch (ResourceNotFoundException e) {
+            fail("Event didn't reach CloudWatch: " + e.getMessage());
         }
         timestampTrackers = new ConcurrentHashMap<>();
         id = UUID.randomUUID().toString();
     }
 
     @Override protected LogStorage createStorage() throws Exception {
-        return new PipelineBridge.LogStorageImpl("PipelineBridgeTest", id, timestampTrackers);
+        return new PipelineBridge.LogStorageImpl(LOG_STREAM_NAME, id, timestampTrackers);
     }
 
 }
