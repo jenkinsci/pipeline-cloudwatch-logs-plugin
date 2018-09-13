@@ -31,6 +31,7 @@ import com.amazonaws.auth.AWSStaticCredentialsProvider;
 import com.amazonaws.auth.BasicSessionCredentials;
 import com.amazonaws.services.logs.AWSLogs;
 import com.amazonaws.services.logs.AWSLogsClientBuilder;
+import com.amazonaws.services.logs.model.CreateLogStreamRequest;
 import com.amazonaws.services.logs.model.DescribeLogStreamsRequest;
 import com.amazonaws.services.logs.model.DescribeLogStreamsResult;
 import com.amazonaws.services.logs.model.InputLogEvent;
@@ -156,6 +157,7 @@ final class CloudWatchSender implements BuildListener, Closeable {
                 remotedAccessKeyId = masterCredentials.getAWSAccessKeyId();
                 remotedSecretAccessKey = masterCredentials.getAWSSecretKey();
                 remotedSessionToken = ((AWSSessionCredentials) masterCredentials).getSessionToken();
+                // TODO move warnings like these to CloudWatchAwsGlobalConfiguration.validate
                 LOGGER.log(Level.WARNING, "Giving up on limiting session credentials to a policy; using {0} as is", remotedAccessKeyId);
             }
         } else if (masterCredentials == null) {
@@ -244,7 +246,9 @@ final class CloudWatchSender implements BuildListener, Closeable {
                     return sequenceToken = ls.getUploadSequenceToken();
                 }
             }
-            throw new IllegalStateException("could not find " + logStreamName);
+            // First-time project.
+            client.createLogStream(new CreateLogStreamRequest(logGroupName, logStreamName));
+            return null;
         }
         return sequenceToken;
     }
