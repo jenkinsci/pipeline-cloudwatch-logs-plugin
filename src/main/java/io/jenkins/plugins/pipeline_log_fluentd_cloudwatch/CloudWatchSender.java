@@ -78,6 +78,7 @@ final class CloudWatchSender implements BuildListener, Closeable {
     private final @Nonnull String buildId;
     private final @CheckForNull String nodeId;
     private transient @CheckForNull PrintStream logger;
+    @SuppressFBWarnings(value = "IS2_INCONSISTENT_SYNC", justification = "Set to a single value so long as the logger remains open.")
     private transient AWSLogs client;
     private transient @CheckForNull String sequenceToken;
     private final @Nonnull String sender;
