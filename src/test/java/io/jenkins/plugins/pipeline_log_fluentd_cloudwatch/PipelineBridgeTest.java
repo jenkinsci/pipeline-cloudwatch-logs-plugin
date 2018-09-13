@@ -52,6 +52,8 @@ import org.jvnet.hudson.test.LoggerRule;
 
 public class PipelineBridgeTest extends LogStorageTestBase {
 
+    private static final String LOG_STREAM_NAME = "PipelineBridgeTest";
+
     @Rule public LoggerRule logging = new LoggerRule().recordPackage(PipelineBridge.class, Level.FINER);
     private Map<String, TimestampTracker> timestampTrackers;
     private String id;
@@ -116,7 +118,7 @@ public class PipelineBridgeTest extends LogStorageTestBase {
     }
 
     @Override protected LogStorage createStorage() throws Exception {
-        return new PipelineBridge.LogStorageImpl("PipelineBridgeTest", id, timestampTrackers);
+        return new PipelineBridge.LogStorageImpl(LOG_STREAM_NAME, id, timestampTrackers);
     }
 
 }

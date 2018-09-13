@@ -47,6 +47,7 @@ import com.amazonaws.services.logs.AWSLogs;
 import com.amazonaws.services.logs.model.FilterLogEventsRequest;
 import com.amazonaws.services.logs.model.FilterLogEventsResult;
 import com.amazonaws.services.logs.model.FilteredLogEvent;
+import com.amazonaws.services.logs.model.ResourceNotFoundException;
 
 import hudson.AbortException;
 import hudson.ExtensionList;
@@ -174,7 +175,14 @@ class CloudWatchRetriever {
     private boolean couldBeComplete() {
         return timestampTracker.checkCompletion(timestamp -> {
             // TODO consider withStartTime(timestamp)
-            if (client.filterLogEvents(createFilter().withFilterPattern("{$.timestamp = " + timestamp + "}").withLimit(1)).getEvents().isEmpty()) {
+            List<FilteredLogEvent> events;
+            try {
+                events = client.filterLogEvents(createFilter().withFilterPattern("{$.timestamp = " + timestamp + "}").withLimit(1)).getEvents();
+            } catch (ResourceNotFoundException e) {
+                LOGGER.log(Level.FINE, "{0} or its stream {1} do not exist: {2}", new Object[] {logGroupName, logStreamName, e.getMessage()});
+                return false;
+            }
+            if (events.isEmpty()) {
                 LOGGER.log(Level.FINE, "{0} contains no event in {1} with timestamp={2}", new Object[] {logGroupName, logStreamName, timestamp});
                 return false;
             } else {
@@ -194,7 +202,12 @@ class CloudWatchRetriever {
         try (Writer w = new OutputStreamWriter(os, StandardCharsets.UTF_8)) {
             String token = null;
                 do {
-                    FilterLogEventsResult result = client.filterLogEvents(createFilter().withFilterPattern("{$.build = \"" + buildId + (nodeId == null ? "" : "\" && $.node = \"" + nodeId) + "\"}").withNextToken(token));
+                    FilterLogEventsResult result;
+                    try {
+                        result = client.filterLogEvents(createFilter().withFilterPattern("{$.build = \"" + buildId + (nodeId == null ? "" : "\" && $.node = \"" + nodeId) + "\"}").withNextToken(token));
+                    } catch (ResourceNotFoundException e) {
+                        throw new IOException(String.format("Unable to find log group \"%s\" or log stream \"%s\"", logGroupName, logStreamName), e);
+                    }
                     token = result.getNextToken();
                     List<FilteredLogEvent> events = result.getEvents();
                     LOGGER.log(Level.FINER, "event count {0} from group={1} stream={2} buildId={3} nodeId={4}", new Object[] {events.size(), logGroupName, logStreamName, buildId, nodeId});
