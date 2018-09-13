@@ -35,6 +35,7 @@ import com.amazonaws.services.logs.model.CreateLogStreamRequest;
 import com.amazonaws.services.logs.model.DescribeLogStreamsRequest;
 import com.amazonaws.services.logs.model.DescribeLogStreamsResult;
 import com.amazonaws.services.logs.model.InputLogEvent;
+import com.amazonaws.services.logs.model.InvalidSequenceTokenException;
 import com.amazonaws.services.logs.model.LogStream;
 import com.amazonaws.services.logs.model.PutLogEventsRequest;
 import com.amazonaws.services.logs.model.PutLogEventsResult;
@@ -267,16 +268,34 @@ final class CloudWatchSender implements BuildListener, Closeable {
             long now = timestampTracker.eventSent();
             data.put("timestamp", now); // TODO remove
             // TODO buffer messages and send asynchronously (which will make TimestampTracker necessary again)
-            PutLogEventsResult result = client.putLogEvents(new PutLogEventsRequest().
-                    withLogGroupName(logGroupName).
-                    withLogStreamName(logStreamName).
-                    withSequenceToken(lastSequenceToken()).
-                    withLogEvents(new InputLogEvent().
-                            withTimestamp(now).
-                            withMessage(JSONObject.fromObject(data).toString())));
-            LOGGER.log(Level.FINE, "result: {0}", result); // TODO how do we know if it was successful or not?
-            synchronized (CloudWatchSender.this) {
-                sequenceToken = result.getNextSequenceToken();
+            while (true) {
+                try {
+                    PutLogEventsResult result = client.putLogEvents(new PutLogEventsRequest().
+                            withLogGroupName(logGroupName).
+                            withLogStreamName(logStreamName).
+                            withSequenceToken(lastSequenceToken()).
+                            withLogEvents(new InputLogEvent().
+                                    withTimestamp(now).
+                                    withMessage(JSONObject.fromObject(data).toString())));
+                    synchronized (CloudWatchSender.this) {
+                        sequenceToken = result.getNextSequenceToken();
+                    }
+                    break;
+                } catch (InvalidSequenceTokenException x) {
+                    LOGGER.fine("Recovering from InvalidSequenceTokenException");
+                    synchronized (CloudWatchSender.this) {
+                        sequenceToken = x.getExpectedSequenceToken();
+                    }
+                    // and retry
+                } catch (RuntimeException x) {
+                    // E.g.: .AWSLogsException: Rate exceeded (Service: AWSLogs; Status Code: 400; Error Code: ThrottlingException; Request ID: …)
+                    LOGGER.log(Level.FINE, "could throw up IOException to be swallowed by PrintStream or sent to master by DurableTaskStep but instead retrying", x);
+                    try {
+                        Thread.sleep(100);
+                    } catch (InterruptedException x2) {
+                        LOGGER.log(Level.WARNING, null, x2);
+                    }
+                }
             }
             LOGGER.log(Level.FINER, "sent event @{0} from {1}/{2}#{3}", new Object[] {now, logStreamName, buildId, nodeId});
         }
