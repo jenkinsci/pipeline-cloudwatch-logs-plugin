@@ -107,7 +107,7 @@ public class CloudWatchAwsGlobalConfiguration extends AbstractAwsGlobalConfigura
      * @throws IOException
      */
     @Restricted(NoExternalUse.class)
-    AWSLogsClientBuilder getAWSLogsClientBuilder(String region, String credentialsId) throws IOException {
+    static AWSLogsClientBuilder getAWSLogsClientBuilder(String region, String credentialsId) throws IOException {
         AWSLogsClientBuilder builder = AWSLogsClientBuilder.standard();
         if (region != null) {
             builder = builder.withRegion(region);

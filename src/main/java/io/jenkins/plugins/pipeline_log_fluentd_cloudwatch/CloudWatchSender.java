@@ -62,6 +62,7 @@ import java.util.logging.Logger;
 import javax.annotation.CheckForNull;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import jenkins.util.JenkinsJVM;
 import net.sf.json.JSONObject;
 
 /**
@@ -157,6 +158,11 @@ final class CloudWatchSender implements BuildListener, Closeable {
                 remotedSessionToken = ((AWSSessionCredentials) masterCredentials).getSessionToken();
                 LOGGER.log(Level.WARNING, "Giving up on limiting session credentials to a policy; using {0} as is", remotedAccessKeyId);
             }
+        } else if (masterCredentials == null) {
+            remotedAccessKeyId = null;
+            remotedSecretAccessKey = null;
+            remotedSessionToken = null;
+            LOGGER.log(Level.WARNING, "No AWS credentials to be found, giving up on limiting to a policy");
         } else {
             // TODO will need to rerun this on master side upon expiration of token:
             GetFederationTokenResult r = builder.build().getFederationToken(new GetFederationTokenRequest().
@@ -189,9 +195,15 @@ final class CloudWatchSender implements BuildListener, Closeable {
                     builder = builder.withRegion(region);
                 }
                 builder.withCredentials(new AWSStaticCredentialsProvider(new BasicSessionCredentials(accessKeyId, secretAccessKey, sessionToken)));
-            } else {
+            } else if (JenkinsJVM.isJenkinsJVM()) {
                 try {
                     builder = ExtensionList.lookupSingleton(CloudWatchAwsGlobalConfiguration.class).getAWSLogsClientBuilder();
+                } catch (IOException x) {
+                    throw new RuntimeException(x);
+                }
+            } else {
+                try {
+                    builder = CloudWatchAwsGlobalConfiguration.getAWSLogsClientBuilder(region, null);
                 } catch (IOException x) {
                     throw new RuntimeException(x);
                 }
