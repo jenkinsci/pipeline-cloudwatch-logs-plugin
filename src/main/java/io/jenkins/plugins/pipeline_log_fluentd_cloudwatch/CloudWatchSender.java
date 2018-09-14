@@ -24,6 +24,7 @@
 
 package io.jenkins.plugins.pipeline_log_fluentd_cloudwatch;
 
+import com.amazonaws.SdkBaseException;
 import com.amazonaws.auth.AWSCredentials;
 import com.amazonaws.auth.AWSCredentialsProvider;
 import com.amazonaws.auth.AWSSessionCredentials;
@@ -39,6 +40,7 @@ import com.amazonaws.services.logs.model.InvalidSequenceTokenException;
 import com.amazonaws.services.logs.model.LogStream;
 import com.amazonaws.services.logs.model.PutLogEventsRequest;
 import com.amazonaws.services.logs.model.PutLogEventsResult;
+import com.amazonaws.services.logs.model.RejectedLogEventsInfo;
 import com.amazonaws.services.securitytoken.AWSSecurityTokenServiceClientBuilder;
 import com.amazonaws.services.securitytoken.model.AssumeRoleRequest;
 import com.amazonaws.services.securitytoken.model.AssumeRoleResult;
@@ -57,8 +59,13 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.io.UnsupportedEncodingException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import javax.annotation.CheckForNull;
@@ -82,8 +89,6 @@ final class CloudWatchSender implements BuildListener, Closeable {
     private final @CheckForNull String nodeId;
     private transient @CheckForNull PrintStream logger;
     @SuppressFBWarnings(value = "IS2_INCONSISTENT_SYNC", justification = "Set to a single value so long as the logger remains open.")
-    private transient AWSLogs client;
-    private transient @CheckForNull String sequenceToken;
     private final @Nonnull String sender;
     @SuppressFBWarnings(value = "IS2_INCONSISTENT_SYNC", justification = "Only need to synchronize initialization; thereafter it remains set.")
     private transient @CheckForNull TimestampTracker timestampTracker;
@@ -92,6 +97,7 @@ final class CloudWatchSender implements BuildListener, Closeable {
     private final @Nullable String secretAccessKey;
     private final @Nullable String sessionToken;
     private final @Nullable String region;
+    private final @Nonnull BlockingQueue<InputLogEvent> events = new ArrayBlockingQueue<>(10_000); // https://docs.aws.amazon.com/AmazonCloudWatchLogs/latest/APIReference/API_PutLogEvents.html max batch size
 
     CloudWatchSender(@Nonnull String logStreamName, @Nonnull String buildId, @CheckForNull String nodeId, @CheckForNull TimestampTracker timestampTracker) throws IOException {
         this(logGroupName(), logStreamName, buildId, nodeId, "master", timestampTracker, null, null, null, null);
@@ -191,30 +197,10 @@ final class CloudWatchSender implements BuildListener, Closeable {
     @Override
     public synchronized PrintStream getLogger() {
         if (logger == null) {
-            AWSLogsClientBuilder builder;
-            if (accessKeyId != null) {
-                builder = AWSLogsClientBuilder.standard();
-                if (region != null) {
-                    builder = builder.withRegion(region);
-                }
-                builder.withCredentials(new AWSStaticCredentialsProvider(new BasicSessionCredentials(accessKeyId, secretAccessKey, sessionToken)));
-            } else if (JenkinsJVM.isJenkinsJVM()) {
-                try {
-                    builder = ExtensionList.lookupSingleton(CloudWatchAwsGlobalConfiguration.class).getAWSLogsClientBuilder();
-                } catch (IOException x) {
-                    throw new RuntimeException(x);
-                }
-            } else {
-                try {
-                    builder = CloudWatchAwsGlobalConfiguration.getAWSLogsClientBuilder(region, null);
-                } catch (IOException x) {
-                    throw new RuntimeException(x);
-                }
-            }
-            client = builder.build();
             if (timestampTracker == null) {
                 timestampTracker = new TimestampTracker(); // need to serialize messages though we are not coördinating with CloudWatchRetriever on the master side
             }
+            new Thread(this::process, "CloudWatchSender:" + logGroupName + ":" + logStreamName).start(); // TODO share threads between loggers using poll methods, or use NIO methods
             try {
                 logger = new PrintStream(new CloudWatchOutputStream(), true, "UTF-8");
             } catch (UnsupportedEncodingException x) {
@@ -227,37 +213,118 @@ final class CloudWatchSender implements BuildListener, Closeable {
     @Override
     public synchronized void close() throws IOException {
         if (logger != null) {
-            client.shutdown();
+            LOGGER.log(Level.FINE, "closing {0}/{1}#{2}", new Object[] {logStreamName, buildId, nodeId});
             logger = null;
-            client = null;
         }
     }
 
-    private synchronized String lastSequenceToken() {
-        if (sequenceToken == null) {
-            // TODO as per https://stackoverflow.com/a/32947579/12916 this is all wrong and we sometimes get InvalidSequenceTokenException between logging nodes
-            // rather create a stream per job × node, for example jenkinsci/git-plugin/master@master or jenkinsci/git-plugin/master@node7
-            // (avoiding actual node names since for elastic clouds they are liable to be random UUIDs, causing log stream pollution)
-            // (and taking care to escape [:*@%] in job names using %XX URL encoding)
-            // and then merge streams in CloudWatchRetriever using the interleaved flag after using DescribeLogStreams on jenkinsci/git-plugin/master@
-            DescribeLogStreamsResult r = client.describeLogStreams(new DescribeLogStreamsRequest(logGroupName).withLogStreamNamePrefix(logStreamName));
-            // TODO handle paging, in case we have a lot of similarly-named jobs
-            for (LogStream ls : r.getLogStreams()) {
-                if (ls.getLogStreamName().equals(logStreamName)) {
-                    return sequenceToken = ls.getUploadSequenceToken();
-                }
+    private void process() {
+        AWSLogsClientBuilder builder;
+        if (accessKeyId != null) {
+            builder = AWSLogsClientBuilder.standard();
+            if (region != null) {
+                builder = builder.withRegion(region);
             }
+            builder.withCredentials(new AWSStaticCredentialsProvider(new BasicSessionCredentials(accessKeyId, secretAccessKey, sessionToken)));
+        } else if (JenkinsJVM.isJenkinsJVM()) {
+            try {
+                builder = ExtensionList.lookupSingleton(CloudWatchAwsGlobalConfiguration.class).getAWSLogsClientBuilder();
+            } catch (IOException x) {
+                throw new RuntimeException(x);
+            }
+        } else {
+            try {
+                builder = CloudWatchAwsGlobalConfiguration.getAWSLogsClientBuilder(region, null);
+            } catch (IOException x) {
+                throw new RuntimeException(x);
+            }
+        }
+        AWSLogs client = builder.build();
+        String sequenceToken = null;
+        // TODO as per https://stackoverflow.com/a/32947579/12916 this is all wrong and we sometimes get InvalidSequenceTokenException between logging nodes
+        // rather create a stream per job × node, for example jenkinsci/git-plugin/master@master or jenkinsci/git-plugin/master@node7
+        // (avoiding actual node names since for elastic clouds they are liable to be random UUIDs, causing log stream pollution)
+        // (and taking care to escape [:*@%] in job names using %XX URL encoding)
+        // and then merge streams in CloudWatchRetriever using the interleaved flag after using DescribeLogStreams on jenkinsci/git-plugin/master@
+        DescribeLogStreamsResult r = client.describeLogStreams(new DescribeLogStreamsRequest(logGroupName).withLogStreamNamePrefix(logStreamName));
+        // TODO handle paging, in case we have a lot of similarly-named jobs
+        for (LogStream ls : r.getLogStreams()) {
+            if (ls.getLogStreamName().equals(logStreamName)) {
+                sequenceToken = ls.getUploadSequenceToken();
+                break;
+            }
+        }
+        if (sequenceToken == null) {
             // First-time project.
             client.createLogStream(new CreateLogStreamRequest(logGroupName, logStreamName));
-            return null;
         }
-        return sequenceToken;
+        MAIN: while (true) {
+            List<InputLogEvent> processing = new ArrayList<>();
+            if (events.drainTo(processing) == 0) {
+                LOGGER.log(Level.FINEST, "waiting for events from {0}/{1}#{2}", new Object[] {logStreamName, buildId, nodeId});
+                try {
+                    Thread.sleep(200); // https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/cloudwatch_limits_cwl.html 5 reqs/s/stream
+                } catch (InterruptedException x) {
+                    LOGGER.log(Level.WARNING, null, x);
+                }
+                continue;
+            }
+            // TODO as per https://docs.aws.amazon.com/AmazonCloudWatchLogs/latest/APIReference/API_PutLogEvents.html verify that total size <1Mb (no documented error class for excess size?)
+            assert !processing.isEmpty();
+            while (true) {
+                try {
+                    PutLogEventsResult result = client.putLogEvents(new PutLogEventsRequest().
+                            withLogGroupName(logGroupName).
+                            withLogStreamName(logStreamName).
+                            withSequenceToken(sequenceToken).
+                            withLogEvents(processing));
+                    sequenceToken = result.getNextSequenceToken();
+                    RejectedLogEventsInfo problems = result.getRejectedLogEventsInfo();
+                    if (problems != null) {
+                        LOGGER.log(Level.WARNING, "Rejected some log events: {0}", problems);
+                    }
+                    break;
+                } catch (InvalidSequenceTokenException x) {
+                    LOGGER.fine("Recovering from InvalidSequenceTokenException");
+                    sequenceToken = x.getExpectedSequenceToken();
+                    // and retry
+                } catch (SdkBaseException x) {
+                    // E.g.: AWSLogsException: Rate exceeded (Service: AWSLogs; Status Code: 400; Error Code: ThrottlingException; Request ID: …)
+                    LOGGER.log(Level.FINE, "could throw up IOException to be swallowed by PrintStream or sent to master by DurableTaskStep but instead retrying", x);
+                    try {
+                        Thread.sleep(1000); // TODO exponential backoff, and limit number of retries before giving up
+                    } catch (InterruptedException x2) {
+                        LOGGER.log(Level.WARNING, null, x2);
+                    }
+                } catch (RuntimeException x) {
+                    LOGGER.log(Level.WARNING, "giving up on this logger", x);
+                    synchronized (this) {
+                        logger = null;
+                    }
+                    break MAIN;
+                }
+            }
+            LOGGER.log(Level.FINER, "sent {0} events @{1} from {2}/{3}#{4}", new Object[] {processing.size(), processing.get(processing.size() - 1).getTimestamp(), logStreamName, buildId, nodeId});
+            synchronized (this) {
+                if (logger == null && events.isEmpty()) {
+                    LOGGER.log(Level.FINER, "{0}/{1}#{2} has been closed", new Object[] {logStreamName, buildId, nodeId});
+                    break;
+                }
+            }
+        }
+        client.shutdown();
     }
 
     private class CloudWatchOutputStream extends LineTransformationOutputStream {
         
         @Override
         protected void eol(byte[] b, int len) throws IOException {
+            synchronized (CloudWatchSender.this) {
+                if (logger == null) {
+                    LOGGER.log(Level.FINER, "refusing to schedule event from closed or broken {0}/{1}#{2}", new Object[] {logStreamName, buildId, nodeId});
+                    return;
+                }
+            }
             Map<String, Object> data = ConsoleNotes.parse(b, len);
             data.put("build", buildId);
             if (nodeId != null) {
@@ -265,39 +332,20 @@ final class CloudWatchSender implements BuildListener, Closeable {
             }
             data.put("sender", sender); // TODO remove once we have log stream per node
             assert timestampTracker != null : "getLogger which creates CloudWatchOutputStream initializes it";
-            long now = timestampTracker.eventSent();
+            long now = timestampTracker.eventSent(); // when the logger prints something, *not* when we send it to CWL
             data.put("timestamp", now); // TODO remove
-            // TODO buffer messages and send asynchronously (which will make TimestampTracker necessary again)
-            while (true) {
-                try {
-                    PutLogEventsResult result = client.putLogEvents(new PutLogEventsRequest().
-                            withLogGroupName(logGroupName).
-                            withLogStreamName(logStreamName).
-                            withSequenceToken(lastSequenceToken()).
-                            withLogEvents(new InputLogEvent().
-                                    withTimestamp(now).
-                                    withMessage(JSONObject.fromObject(data).toString())));
-                    synchronized (CloudWatchSender.this) {
-                        sequenceToken = result.getNextSequenceToken();
-                    }
-                    break;
-                } catch (InvalidSequenceTokenException x) {
-                    LOGGER.fine("Recovering from InvalidSequenceTokenException");
-                    synchronized (CloudWatchSender.this) {
-                        sequenceToken = x.getExpectedSequenceToken();
-                    }
-                    // and retry
-                } catch (RuntimeException x) {
-                    // E.g.: .AWSLogsException: Rate exceeded (Service: AWSLogs; Status Code: 400; Error Code: ThrottlingException; Request ID: …)
-                    LOGGER.log(Level.FINE, "could throw up IOException to be swallowed by PrintStream or sent to master by DurableTaskStep but instead retrying", x);
-                    try {
-                        Thread.sleep(100);
-                    } catch (InterruptedException x2) {
-                        LOGGER.log(Level.WARNING, null, x2);
-                    }
+            try {
+                if (events.offer(new InputLogEvent().
+                        withTimestamp(now).
+                        withMessage(JSONObject.fromObject(data).toString()),
+                        1, TimeUnit.MINUTES)) {
+                    LOGGER.log(Level.FINER, "scheduled event @{0} from {1}/{2}#{3}", new Object[] {now, logStreamName, buildId, nodeId});
+                } else {
+                    LOGGER.warning("Message buffer full, giving up");
                 }
+            } catch (InterruptedException x) {
+                LOGGER.log(Level.WARNING, "stopped waiting to send a message", x);
             }
-            LOGGER.log(Level.FINER, "sent event @{0} from {1}/{2}#{3}", new Object[] {now, logStreamName, buildId, nodeId});
         }
 
     }
