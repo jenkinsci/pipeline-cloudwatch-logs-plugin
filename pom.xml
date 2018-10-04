@@ -4,7 +4,7 @@
     <parent>
         <groupId>org.jenkins-ci.plugins</groupId>
         <artifactId>plugin</artifactId>
-        <version>3.19</version>
+        <version>3.24</version>
         <relativePath />
     </parent>
     <groupId>io.jenkins.plugins</groupId>
@@ -17,7 +17,7 @@
         <jenkins.version>2.121.2</jenkins.version>
         <java.level>8</java.level>
         <useBeta>true</useBeta>
-        <workflow-api-plugin.version>2.30-rc814.48e78d3fbdd9</workflow-api-plugin.version> <!-- TODO https://github.com/jenkinsci/workflow-api-plugin/pull/17 -->
+        <workflow-api-plugin.version>2.30-beta-1</workflow-api-plugin.version>
         <powermock.version>1.7.1</powermock.version>
     </properties>
     <name>Pipeline Logging over CloudWatch Plugin</name>
@@ -72,13 +72,13 @@
         <dependency>
             <groupId>org.jenkins-ci.plugins.workflow</groupId>
             <artifactId>workflow-job</artifactId>
-            <version>2.25-rc826.d4501726faf1</version> <!-- TODO https://github.com/jenkinsci/workflow-job-plugin/pull/27 -->
+            <version>2.26-beta-1</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.jenkins-ci.plugins.workflow</groupId>
             <artifactId>workflow-cps</artifactId>
-            <version>2.53</version>
+            <version>2.58-beta-1</version>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -90,7 +90,7 @@
         <dependency>
             <groupId>org.jenkins-ci.plugins.workflow</groupId>
             <artifactId>workflow-durable-task-step</artifactId>
-            <version>2.21-rc731.8668f02d0f0b</version> <!-- TODO https://github.com/jenkinsci/workflow-durable-task-step-plugin/pull/21 -->
+            <version>2.22</version>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -129,7 +129,7 @@
             <dependency>
                 <groupId>org.jenkins-ci.plugins.workflow</groupId>
                 <artifactId>workflow-support</artifactId>
-                <version>2.21-rc620.8f4780635a3d</version> <!-- TODO https://github.com/jenkinsci/workflow-support-plugin/pull/15 -->
+                <version>2.21-beta-1</version>
             </dependency>
             <dependency>
                 <groupId>org.jenkins-ci.plugins.workflow</groupId>
@@ -139,12 +139,12 @@
             <dependency>
                 <groupId>org.jenkins-ci.plugins</groupId>
                 <artifactId>structs</artifactId>
-                <version>1.14</version>
+                <version>1.16</version>
             </dependency>
             <dependency>
                 <groupId>org.jenkins-ci</groupId>
                 <artifactId>symbol-annotation</artifactId>
-                <version>1.14</version>
+                <version>1.16</version>
             </dependency>
             <dependency>
                 <groupId>org.jenkins-ci.plugins</groupId>
@@ -159,7 +159,7 @@
             <dependency>
                 <groupId>org.jenkins-ci.plugins</groupId>
                 <artifactId>script-security</artifactId>
-                <version>1.42</version>
+                <version>1.46</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
