@@ -44,18 +44,21 @@ import org.jenkinsci.plugins.workflow.log.LogStorage;
 import org.kohsuke.stapler.framework.io.ByteBuffer;
 
 import com.amazonaws.services.logs.AWSLogs;
+import com.amazonaws.services.logs.model.DescribeLogStreamsRequest;
+import com.amazonaws.services.logs.model.DescribeLogStreamsResult;
 import com.amazonaws.services.logs.model.FilterLogEventsRequest;
 import com.amazonaws.services.logs.model.FilterLogEventsResult;
 import com.amazonaws.services.logs.model.FilteredLogEvent;
+import com.amazonaws.services.logs.model.LogStream;
 import com.amazonaws.services.logs.model.ResourceNotFoundException;
 
 import hudson.AbortException;
 import hudson.ExtensionList;
-import hudson.Main;
 import hudson.console.AnnotatedLargeText;
 import hudson.console.ConsoleAnnotationOutputStream;
 import java.io.InputStream;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 import net.sf.json.JSONObject;
 
 /**
@@ -65,14 +68,14 @@ class CloudWatchRetriever {
 
     private static final Logger LOGGER = Logger.getLogger(CloudWatchRetriever.class.getName());
 
-    private final String logStreamName;
+    private final String logStreamNameBase;
     private final String buildId;
     private final TimestampTracker timestampTracker;
     private final String logGroupName;
     private final AWSLogs client;
 
     CloudWatchRetriever(String logStreamName, String buildId, TimestampTracker timestampTracker) throws IOException {
-        this.logStreamName = logStreamName;
+        this.logStreamNameBase = logStreamName;
         this.buildId = buildId;
         this.timestampTracker = timestampTracker;
         CloudWatchAwsGlobalConfiguration configuration = ExtensionList.lookupSingleton(CloudWatchAwsGlobalConfiguration.class);
@@ -114,11 +117,13 @@ class CloudWatchRetriever {
 
         @Override
         public long writeHtmlTo(long start, final Writer w) throws IOException {
-            if (start == 0 && /* would mess up PipelineBridgeTest */ !Main.isUnitTest) {
+            /* TODO check if there any equivalent that can collate multiple streams
+            if (start == 0 && !Main.isUnitTest) { // would mess up PipelineBridgeTest
                 String url = "https://console.aws.amazon.com/cloudwatch/home#logEventViewer:group=" + logGroupName + ";stream=" + logStreamName + ";filter=%257B%2524.build%2520%253D%2520%2522" + buildId + "%2522%257D";
                 w.write("[view in <a href=\"" + url + "\" target=\"_blank\">AWS Console</a> if authorized]\n");
                 // Should not affect the return value at all: Blue Ocean does not use writeHtmlTo, and regular console is not counting bytes.
             }
+            */
             AtomicInteger line = new AtomicInteger();
             if (start > 0) {
                 long remaining = start;
@@ -179,14 +184,14 @@ class CloudWatchRetriever {
             try {
                 events = client.filterLogEvents(createFilter().withFilterPattern("{$.timestamp = " + timestamp + "}").withLimit(1)).getEvents();
             } catch (ResourceNotFoundException e) {
-                LOGGER.log(Level.FINE, "{0} or its stream {1} do not exist: {2}", new Object[] {logGroupName, logStreamName, e.getMessage()});
+                LOGGER.log(Level.FINE, "{0} or its stream {1}@* do not exist: {2}", new Object[] {logGroupName, logStreamNameBase, e.getMessage()});
                 return false;
             }
             if (events.isEmpty()) {
-                LOGGER.log(Level.FINE, "{0} contains no event in {1} with timestamp={2}", new Object[] {logGroupName, logStreamName, timestamp});
+                LOGGER.log(Level.FINE, "{0} contains no event in {1}@* with timestamp={2}", new Object[] {logGroupName, logStreamNameBase, timestamp});
                 return false;
             } else {
-                LOGGER.log(Level.FINER, "{0} does contain an event in {1} with timestamp={2}", new Object[] {logGroupName, logStreamName, timestamp});
+                LOGGER.log(Level.FINER, "{0} does contain an event in {1}@* with timestamp={2}", new Object[] {logGroupName, logStreamNameBase, timestamp});
                 return true;
             }
         });
@@ -206,11 +211,11 @@ class CloudWatchRetriever {
                     try {
                         result = client.filterLogEvents(createFilter().withFilterPattern("{$.build = \"" + buildId + (nodeId == null ? "" : "\" && $.node = \"" + nodeId) + "\"}").withNextToken(token));
                     } catch (ResourceNotFoundException e) {
-                        throw new IOException(String.format("Unable to find log group \"%s\" or log stream \"%s\"", logGroupName, logStreamName), e);
+                        throw new IOException(String.format("Unable to find log group \"%s\" or log stream \"%s@*\"", logGroupName, logStreamNameBase), e);
                     }
                     token = result.getNextToken();
                     List<FilteredLogEvent> events = result.getEvents();
-                    LOGGER.log(Level.FINER, "event count {0} from group={1} stream={2} buildId={3} nodeId={4}", new Object[] {events.size(), logGroupName, logStreamName, buildId, nodeId});
+                    LOGGER.log(Level.FINER, "event count {0} from group={1} stream={2}@* buildId={3} nodeId={4}", new Object[] {events.size(), logGroupName, logStreamNameBase, buildId, nodeId});
                     // TODO remove timestamp from JSON
                     events.sort(Comparator.comparingLong(e -> JSONObject.fromObject(e.getMessage()).optLong("timestamp", e.getTimestamp())));
                     for (FilteredLogEvent event : events) {
@@ -230,9 +235,12 @@ class CloudWatchRetriever {
     }
 
     private FilterLogEventsRequest createFilter() {
+        DescribeLogStreamsResult r = client.describeLogStreams(new DescribeLogStreamsRequest(logGroupName).withLogStreamNamePrefix(logStreamNameBase + "@")); // TODO paging
+        List<String> logStreamNames = r.getLogStreams().stream().map(LogStream::getLogStreamName).collect(Collectors.toList());
         return new FilterLogEventsRequest().
             withLogGroupName(logGroupName).
-            withLogStreamNames(logStreamName);
+            withInterleaved(true).
+            withLogStreamNames(logStreamNames);
     }
 
 }

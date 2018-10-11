@@ -49,13 +49,14 @@ public final class PipelineBridge implements LogStorageFactory {
 
     @Override
     public LogStorage forBuild(FlowExecutionOwner owner) {
-        final String logStreamName;
+        final String logStreamNameBase;
         final String buildId;
         try {
             Queue.Executable exec = owner.getExecutable();
             if (exec instanceof Run) {
                 Run<?, ?> b = (Run<?, ?>) exec;
-                logStreamName = b.getParent().getFullName();
+                // TODO escape [:*@%] in job names using %XX URL encoding
+                logStreamNameBase = b.getParent().getFullName();
                 buildId = b.getId();
             } else {
                 return null;
@@ -63,35 +64,35 @@ public final class PipelineBridge implements LogStorageFactory {
         } catch (IOException x) {
             return new BrokenLogStorage(x);
         }
-        return new LogStorageImpl(logStreamName, buildId, timestampTrackers);
+        return new LogStorageImpl(logStreamNameBase, buildId, timestampTrackers);
     }
     
     static class LogStorageImpl implements LogStorage {
 
-        private final String logStreamName;
+        private final String logStreamNameBase;
         private final String buildId;
         private final Map<String, TimestampTracker> timestampTrackers;
 
         LogStorageImpl(String logStreamName, String buildId, Map<String, TimestampTracker> timestampTrackers) {
-            this.logStreamName = logStreamName;
+            this.logStreamNameBase = logStreamName;
             this.buildId = buildId;
             this.timestampTrackers = timestampTrackers;
         }
 
         @Override
         public BuildListener overallListener() throws IOException, InterruptedException {
-            return new CloudWatchSender(logStreamName, buildId, null, timestampTracker());
+            return new CloudWatchSender(logStreamNameBase, buildId, null, timestampTracker());
         }
 
         @Override
         public TaskListener nodeListener(FlowNode node) throws IOException, InterruptedException {
-            return new CloudWatchSender(logStreamName, buildId, node.getId(), timestampTracker());
+            return new CloudWatchSender(logStreamNameBase, buildId, node.getId(), timestampTracker());
         }
 
         @Override
         public AnnotatedLargeText<FlowExecutionOwner.Executable> overallLog(FlowExecutionOwner.Executable build, boolean complete) {
             try {
-                return new CloudWatchRetriever(logStreamName, buildId, timestampTracker()).overallLog(build, complete);
+                return new CloudWatchRetriever(logStreamNameBase, buildId, timestampTracker()).overallLog(build, complete);
             } catch (Exception x) {
                 return new BrokenLogStorage(x).overallLog(build, complete);
             }
@@ -100,14 +101,14 @@ public final class PipelineBridge implements LogStorageFactory {
         @Override
         public AnnotatedLargeText<FlowNode> stepLog(FlowNode node, boolean complete) {
             try {
-                return new CloudWatchRetriever(logStreamName, buildId, timestampTracker()).stepLog(node, complete);
+                return new CloudWatchRetriever(logStreamNameBase, buildId, timestampTracker()).stepLog(node, complete);
             } catch (Exception x) {
                 return new BrokenLogStorage(x).stepLog(node, complete);
             }
         }
 
         private TimestampTracker timestampTracker() {
-            return timestampTrackers.computeIfAbsent(logStreamName + "#" + buildId, k -> new TimestampTracker());
+            return timestampTrackers.computeIfAbsent(logStreamNameBase + "#" + buildId, k -> new TimestampTracker());
         }
 
     }

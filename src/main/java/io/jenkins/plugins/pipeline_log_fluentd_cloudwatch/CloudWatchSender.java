@@ -53,7 +53,6 @@ import hudson.AbortException;
 import hudson.ExtensionList;
 import hudson.console.LineTransformationOutputStream;
 import hudson.model.BuildListener;
-import hudson.remoting.Channel;
 import io.jenkins.plugins.aws.global_configuration.CredentialsAwsGlobalConfiguration;
 import java.io.Closeable;
 import java.io.IOException;
@@ -66,6 +65,7 @@ import java.util.Objects;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import javax.annotation.CheckForNull;
@@ -84,12 +84,20 @@ final class CloudWatchSender implements BuildListener, Closeable {
     private static final long serialVersionUID = 1;
 
     private final @Nonnull String logGroupName;
+    /** for example {@code jenkinsci/git-plugin/master} */
+    private final @Nonnull String logStreamNameBase;
+    /** for example {@code jenkinsci/git-plugin/master@master} or {@code jenkinsci/git-plugin/master@agent7} */
     private final @Nonnull String logStreamName;
+    /**
+     * Allows {@link #logStreamName} to be unique per node.
+     * Avoiding actual node names since for elastic clouds they are liable to be random UUIDs, causing log stream pollution.
+     */
+    private transient @Nonnull final AtomicInteger logStreamNameSuffixCounter;
+    /** for example {@code 123} */
     private final @Nonnull String buildId;
+    /** for example {@code 7} */
     private final @CheckForNull String nodeId;
     private transient @CheckForNull PrintStream logger;
-    @SuppressFBWarnings(value = "IS2_INCONSISTENT_SYNC", justification = "Set to a single value so long as the logger remains open.")
-    private final @Nonnull String sender;
     @SuppressFBWarnings(value = "IS2_INCONSISTENT_SYNC", justification = "Only need to synchronize initialization; thereafter it remains set.")
     private transient @CheckForNull TimestampTracker timestampTracker;
     // TODO refactor all these plus sender into one struct:
@@ -99,8 +107,8 @@ final class CloudWatchSender implements BuildListener, Closeable {
     private final @Nullable String region;
     private final @Nonnull BlockingQueue<InputLogEvent> events = new ArrayBlockingQueue<>(10_000); // https://docs.aws.amazon.com/AmazonCloudWatchLogs/latest/APIReference/API_PutLogEvents.html max batch size
 
-    CloudWatchSender(@Nonnull String logStreamName, @Nonnull String buildId, @CheckForNull String nodeId, @CheckForNull TimestampTracker timestampTracker) throws IOException {
-        this(logGroupName(), logStreamName, buildId, nodeId, "master", timestampTracker, null, null, null, null);
+    CloudWatchSender(@Nonnull String logStreamNameBase, @Nonnull String buildId, @CheckForNull String nodeId, @CheckForNull TimestampTracker timestampTracker) throws IOException {
+        this(logGroupName(), logStreamNameBase, logStreamNameBase + "@master", buildId, nodeId, timestampTracker, null, null, null, null);
     }
 
     private static String logGroupName() throws IOException {
@@ -111,12 +119,13 @@ final class CloudWatchSender implements BuildListener, Closeable {
         return logGroupName;
     }
 
-    private CloudWatchSender(@Nonnull String logGroupName, @Nonnull String logStreamName, @Nonnull String buildId, @CheckForNull String nodeId, @Nonnull String sender, @CheckForNull TimestampTracker timestampTracker, @CheckForNull String accessKeyId, @Nullable String secretAccessKey, @Nullable String sessionToken, @Nullable String region) {
+    private CloudWatchSender(@Nonnull String logGroupName, @Nonnull String logStreamNameBase, @Nonnull String logStreamName, @Nonnull String buildId, @CheckForNull String nodeId, @CheckForNull TimestampTracker timestampTracker, @CheckForNull String accessKeyId, @Nullable String secretAccessKey, @Nullable String sessionToken, @Nullable String region) {
         this.logGroupName = logGroupName;
-        this.logStreamName = Objects.requireNonNull(logStreamName);
+        this.logStreamNameBase = Objects.requireNonNull(logStreamNameBase);
+        this.logStreamName = logStreamName;
+        logStreamNameSuffixCounter = new AtomicInteger();
         this.buildId = Objects.requireNonNull(buildId);
         this.nodeId = nodeId;
-        this.sender = sender;
         this.timestampTracker = timestampTracker;
         this.accessKeyId = accessKeyId;
         this.secretAccessKey = secretAccessKey;
@@ -125,6 +134,7 @@ final class CloudWatchSender implements BuildListener, Closeable {
     }
 
     private Object writeReplace() throws IOException {
+        assert logStreamName.endsWith("@master"); // TODO currently do not support double remoting
         AWSSecurityTokenServiceClientBuilder builder = AWSSecurityTokenServiceClientBuilder.standard();
         CredentialsAwsGlobalConfiguration credentialsConfig = CredentialsAwsGlobalConfiguration.get();
         String region = credentialsConfig.getRegion();
@@ -136,10 +146,10 @@ final class CloudWatchSender implements BuildListener, Closeable {
             AWSStaticCredentialsProvider credentialsProvider = new AWSStaticCredentialsProvider(jenkinsCredentials.getCredentials());
             builder.withCredentials(credentialsProvider);
         }
-        String agentName = Channel.current().getName();
         AWSCredentialsProvider credentialsProvider = builder.getCredentials();
         AWSCredentials masterCredentials = credentialsProvider != null ? credentialsProvider.getCredentials() : null;
         String remotedAccessKeyId, remotedSecretAccessKey, remotedSessionToken;
+        String newLogStreamName = logStreamNameBase + "@agent" + logStreamNameSuffixCounter.incrementAndGet();
         if (masterCredentials instanceof AWSSessionCredentials) {
             // otherwise would just throw AWSSecurityTokenServiceException: Cannot call GetFederationToken with session credentials
             // TODO just check for ((AWSCredentialsImpl) jenkinsCredentials).getIamRoleArn() if that is fixed to use the default provider chain
@@ -154,7 +164,7 @@ final class CloudWatchSender implements BuildListener, Closeable {
                 AssumeRoleResult r = builder.build().assumeRole(new AssumeRoleRequest().
                         withRoleArn(role).
                         withRoleSessionName("CloudWatchSender"). // TODO does this need to be unique?
-                        withPolicy(policy()));
+                        withPolicy(policy(newLogStreamName)));
                 Credentials credentials = r.getCredentials();
                 remotedAccessKeyId = credentials.getAccessKeyId();
                 remotedSecretAccessKey = credentials.getSecretAccessKey();
@@ -176,18 +186,18 @@ final class CloudWatchSender implements BuildListener, Closeable {
             // TODO will need to rerun this on master side upon expiration of token:
             GetFederationTokenResult r = builder.build().getFederationToken(new GetFederationTokenRequest().
                     withName("CloudWatchSender"). // TODO as above?
-                    withPolicy(policy()));
+                    withPolicy(policy(newLogStreamName)));
             Credentials credentials = r.getCredentials();
             remotedAccessKeyId = credentials.getAccessKeyId();
             remotedSecretAccessKey = credentials.getSecretAccessKey();
             remotedSessionToken = credentials.getSessionToken();
             LOGGER.log(Level.FINE, "GetFederationToken succeeded; using {0}", remotedAccessKeyId);
         }
-        return new CloudWatchSender(logGroupName, logStreamName, buildId, nodeId, agentName, /* do not currently bother to record events from agent side */null, remotedAccessKeyId, remotedSecretAccessKey, remotedSessionToken, region);
+        return new CloudWatchSender(logGroupName, logStreamNameBase, newLogStreamName, buildId, nodeId, /* do not currently bother to record events from agent side */null, remotedAccessKeyId, remotedSecretAccessKey, remotedSessionToken, region);
     }
 
     /** @see <a href="https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/iam-access-control-overview-cwl.html">Reference</a> */
-    private String policy() {
+    private String policy(String logStreamName) {
         return "{\"Version\": \"2012-10-17\", \"Statement\": [" +
                 "{\"Effect\": \"Allow\", \"Action\": [\"logs:PutLogEvents\"], \"Resource\": [\"arn:aws:logs:*:*:log-group:" + logGroupName + ":log-stream:" + logStreamName + "\"]}, " +
                 "{\"Effect\": \"Allow\", \"Action\": [\"logs:DescribeLogStreams\"], \"Resource\": [\"arn:aws:logs:*:*:log-group:" + logGroupName + ":log-stream:*\"]}" + // TODO delete
@@ -241,11 +251,6 @@ final class CloudWatchSender implements BuildListener, Closeable {
         }
         AWSLogs client = builder.build();
         String sequenceToken = null;
-        // TODO as per https://stackoverflow.com/a/32947579/12916 this is all wrong and we sometimes get InvalidSequenceTokenException between logging nodes
-        // rather create a stream per job × node, for example jenkinsci/git-plugin/master@master or jenkinsci/git-plugin/master@node7
-        // (avoiding actual node names since for elastic clouds they are liable to be random UUIDs, causing log stream pollution)
-        // (and taking care to escape [:*@%] in job names using %XX URL encoding)
-        // and then merge streams in CloudWatchRetriever using the interleaved flag after using DescribeLogStreams on jenkinsci/git-plugin/master@
         DescribeLogStreamsResult r = client.describeLogStreams(new DescribeLogStreamsRequest(logGroupName).withLogStreamNamePrefix(logStreamName));
         // TODO handle paging, in case we have a lot of similarly-named jobs
         for (LogStream ls : r.getLogStreams()) {
@@ -256,6 +261,7 @@ final class CloudWatchSender implements BuildListener, Closeable {
         }
         if (sequenceToken == null) {
             // First-time project.
+            LOGGER.log(Level.FINE, "Creating {0}", logStreamName);
             client.createLogStream(new CreateLogStreamRequest(logGroupName, logStreamName));
         }
         MAIN: while (true) {
@@ -285,7 +291,8 @@ final class CloudWatchSender implements BuildListener, Closeable {
                     }
                     break;
                 } catch (InvalidSequenceTokenException x) {
-                    LOGGER.fine("Recovering from InvalidSequenceTokenException");
+                    // Should not happen, since this logger should be the exclusive owner of this fullName@suffix stream, but sometimes it does anyway?
+                    LOGGER.warning("Recovering from InvalidSequenceTokenException");
                     sequenceToken = x.getExpectedSequenceToken();
                     // and retry
                 } catch (SdkBaseException x) {
@@ -330,7 +337,6 @@ final class CloudWatchSender implements BuildListener, Closeable {
             if (nodeId != null) {
                 data.put("node", nodeId);
             }
-            data.put("sender", sender); // TODO remove once we have log stream per node
             assert timestampTracker != null : "getLogger which creates CloudWatchOutputStream initializes it";
             long now = timestampTracker.eventSent(); // when the logger prints something, *not* when we send it to CWL
             data.put("timestamp", now); // TODO remove
