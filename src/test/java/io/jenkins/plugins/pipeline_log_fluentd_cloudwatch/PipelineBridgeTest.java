@@ -89,6 +89,7 @@ public class PipelineBridgeTest extends LogStorageTestBase {
     @TestExtension public static final class RemoteLogs extends ComputerListener {
         @Override public void onOnline(Computer c, TaskListener listener) throws IOException, InterruptedException {
             if (c instanceof SlaveComputer) {
+                // TODO this does not work
                 c.getChannel().call(new RemoteLogDumper(c.getDisplayName()));
             }
         }

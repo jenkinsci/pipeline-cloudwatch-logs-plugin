@@ -30,6 +30,7 @@ import hudson.AbortException;
 import hudson.ExtensionList;
 import hudson.console.LineTransformationOutputStream;
 import hudson.model.BuildListener;
+import hudson.remoting.Channel;
 import java.io.Closeable;
 import java.io.IOException;
 import java.io.PrintStream;
@@ -96,22 +97,28 @@ abstract class CloudWatchSender implements BuildListener, Closeable {
             if (state == null) {
                 state = loadState();
             }
-            return new AgentSender(logGroupName, logStreamNameBase, buildId, nodeId, state.remote());
+            return new AgentSender(logGroupName, logStreamNameBase, buildId, nodeId, state.token());
         }
 
     }
 
     static final class AgentSender extends CloudWatchSender {
 
-        private final LogStreamState.StateSupplier stateSupplier;
+        private final String token;
+        private Channel channel;
 
-        AgentSender(String logGroupName, String logStreamNameBase, String buildId, String nodeId, LogStreamState.StateSupplier stateSupplier) {
+        AgentSender(String logGroupName, String logStreamNameBase, String buildId, String nodeId, String token) {
             super(logGroupName, logStreamNameBase, buildId, nodeId, /* do not currently bother to record events from agent side */null);
-            this.stateSupplier = stateSupplier;
+            this.token = token;
+        }
+
+        private Object readResolve() {
+            channel = Channel.currentOrFail();
+            return this;
         }
 
         @Override protected LogStreamState loadState() {
-            return stateSupplier.create();
+            return LogStreamState.onAgent(logGroupName, logStreamNameBase, token, channel);
         }
 
     }

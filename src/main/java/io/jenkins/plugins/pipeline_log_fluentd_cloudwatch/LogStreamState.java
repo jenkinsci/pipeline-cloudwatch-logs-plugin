@@ -67,8 +67,9 @@ import java.util.logging.Logger;
 import javax.annotation.CheckForNull;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import jenkins.security.HMACConfidentialKey;
+import jenkins.security.SlaveToMasterCallable;
 import jenkins.util.JenkinsJVM;
-import org.jenkinsci.remoting.SerializableOnlyOverRemoting;
 
 /**
  * What is happening in a given log stream.
@@ -80,12 +81,25 @@ abstract class LogStreamState {
 
     private static final Map<String, LogStreamState> states = new ConcurrentHashMap<>();
 
-    static LogStreamState onMaster(String logGroupName, String logStreamNameBase) {
-        return states.computeIfAbsent(logGroupName + "#" + logStreamNameBase, k -> new MasterState(logGroupName, logStreamNameBase));
+    /**
+     * Guards AWS calls which for security reasons may only happen on the master.
+     * Agent calls must pass a valid MAC.
+     * The {@code message} is {@link #key}.
+     * @see #token
+     */
+    private static final HMACConfidentialKey TOKENS = new HMACConfidentialKey(MasterState.class, "TOKENS");
+
+    private static String key(String logGroupName, String logStreamNameBase) {
+        return logGroupName + "#" + logStreamNameBase;
     }
 
-    static LogStreamState onAgent(String logGroupName, String logStreamNameBase, MasterCalls masterCalls) {
-        return states.computeIfAbsent(logGroupName + "#" + logStreamNameBase, k -> new AgentState(logGroupName, logStreamNameBase, masterCalls));
+    static LogStreamState onMaster(String logGroupName, String logStreamNameBase) {
+        return states.computeIfAbsent(key(logGroupName, logStreamNameBase), k -> new MasterState(logGroupName, logStreamNameBase));
+    }
+
+    static LogStreamState onAgent(String logGroupName, String logStreamNameBase, String token, Channel channel) {
+        String key = key(logGroupName, logStreamNameBase);
+        return states.computeIfAbsent(key, k -> new AgentState(logGroupName, logStreamNameBase, token, channel));
     }
 
     protected final String logGroupName;
@@ -97,23 +111,18 @@ abstract class LogStreamState {
         this.logStreamNameBase = logStreamNameBase;
     }
 
-    private static final class MasterState extends LogStreamState implements MasterCalls {
+    private static final class MasterState extends LogStreamState {
 
         private @CheckForNull AWSLogs client;
         private final Set<String> agentLogStreamNames = new HashSet<>();
-        /** Tries to keep {@link Channel#export} from collecting things. TODO when do we discard these? */
-        @SuppressWarnings("MismatchedQueryAndUpdateOfCollection")
-        private final List<MasterCalls> masterCallRefs = new ArrayList<>();
 
         private MasterState(String logGroupName, String logStreamNameBase) {
             super(logGroupName, logStreamNameBase);
             JenkinsJVM.checkJenkinsJVM();
         }
 
-        @Override protected StateSupplier remote() {
-            MasterCalls masterCallRef = Channel.currentOrFail().export(MasterCalls.class, this);
-            masterCallRefs.add(masterCallRef);
-            return new StateSupplier(logGroupName, logStreamNameBase, masterCallRef);
+        @Override protected String token() {
+            return TOKENS.mac(key(logGroupName, logStreamNameBase));
         }
 
         @Override protected synchronized AWSLogs client() throws IOException {
@@ -163,7 +172,7 @@ abstract class LogStreamState {
             }
         }
 
-        @Override public Auth authenticate() throws IOException {
+        Auth authenticate() throws IOException {
             AWSSecurityTokenServiceClientBuilder builder = AWSSecurityTokenServiceClientBuilder.standard();
             CredentialsAwsGlobalConfiguration credentialsConfig = CredentialsAwsGlobalConfiguration.get();
             String region = credentialsConfig.getRegion();
@@ -240,41 +249,103 @@ abstract class LogStreamState {
                    "]}";
         }
 
-        @Override public void notifyShutdown(String agentLogStreamName) {
+        void notifyShutdown(String agentLogStreamName) {
             synchronized (agentLogStreamNames) {
                 agentLogStreamNames.remove(agentLogStreamName);
             }
         }
 
+    }
+    
+    private static abstract class SecuredCallable<V, T extends Throwable> extends SlaveToMasterCallable<V, T> {
+        
+        private static final long serialVersionUID = 1;
+
+        protected final String logGroupName;
+        protected final String logStreamNameBase;
+        private final String token;
+        
+        protected SecuredCallable(String logGroupName, String logStreamNameBase, String token) {
+            this.logGroupName = logGroupName;
+            this.logStreamNameBase = logStreamNameBase;
+            this.token = token;
+        }
+        
+        @Override public V call() throws T {
+            MasterState state = (MasterState) onMaster(logGroupName, logStreamNameBase);
+            if (!TOKENS.checkMac(key(logGroupName, logStreamNameBase), token)) {
+                throw new SecurityException();
+            }
+            return doCall(state);
+        }
+        
+        protected abstract V doCall(MasterState state) throws T;
+        
+    }
+
+    private static final class Authenticate extends SecuredCallable<Auth, IOException> {
+
+        private static final long serialVersionUID = 1;
+
+        Authenticate(String logGroupName, String logStreamNameBase, String token) {
+            super(logGroupName, logStreamNameBase, token);
+        }
+
+        @Override protected Auth doCall(MasterState state) throws IOException {
+            return state.authenticate();
+        }
+
+    }
+
+    private static final class NotifyShutdown extends SecuredCallable<Void, RuntimeException> {
+
+        private static final long serialVersionUID = 1;
+
+        private final String agentLogStreamName;
+
+        NotifyShutdown(String logGroupName, String logStreamNameBase, String token, String agentLogStreamName) {
+            super(logGroupName, logStreamNameBase, token);
+            this.agentLogStreamName = agentLogStreamName;
+        }
+
+        @Override protected Void doCall(MasterState state) {
+            if (!agentLogStreamName.startsWith(logStreamNameBase + "@")) {
+                throw new SecurityException();
+            }
+            state.notifyShutdown(agentLogStreamName);
+            return null;
+        }
 
     }
 
     private static final class AgentState extends LogStreamState {
 
-        private final @Nonnull MasterCalls masterCalls;
+        private final @Nonnull String token;
         private @CheckForNull AWSLogs client;
         private @Nullable String logStreamName;
+        private final @Nonnull Channel channel;
 
-        AgentState(String logGroupName, String logStreamNameBase, MasterCalls masterCalls) {
+        AgentState(String logGroupName, String logStreamNameBase, String token, Channel channel) {
             super(logGroupName, logStreamNameBase);
-            this.masterCalls = masterCalls;
+            this.token = token;
+            this.channel = channel;
             JenkinsJVM.checkNotJenkinsJVM();
         }
 
-        @Override protected StateSupplier remote() {
-            return new StateSupplier(logGroupName, logStreamNameBase, masterCalls);
+        @Override protected String token() {
+            return token;
         }
 
-        @Override protected synchronized AWSLogs client() throws IOException {
+        @Override protected synchronized AWSLogs client() throws IOException, InterruptedException {
             if (client == null) {
-                Auth auth = masterCalls.authenticate();
+                Auth auth = channel.call(new Authenticate(logGroupName, logStreamNameBase, token));
                 client = auth.client();
                 logStreamName = auth.logStreamName;
             }
             return client;
         }
 
-        @Override protected String logStreamName() throws IOException {
+        @Override protected String logStreamName() throws IOException, InterruptedException {
             client();
             return logStreamName;
         }
@@ -289,18 +360,23 @@ abstract class LogStreamState {
             if (client != null) {
                 client.shutdown();
                 client = null;
-                masterCalls.notifyShutdown(logStreamName);
+                try {
+                    channel.call(new NotifyShutdown(logGroupName, logStreamNameBase, token, logStreamName));
+                } catch (Exception x) {
+                    LOGGER.log(Level.WARNING, null, x);
+                }
                 logStreamName = null;
             }
         }
 
     }
 
-    protected abstract @Nonnull StateSupplier remote();
+    /** @see MasterState#TOKENS */
+    protected abstract @Nonnull String token();
 
-    protected abstract @Nonnull AWSLogs client() throws IOException;
+    protected abstract @Nonnull AWSLogs client() throws IOException, InterruptedException;
 
-    protected abstract @Nonnull String logStreamName() throws IOException;
+    protected abstract @Nonnull String logStreamName() throws IOException, InterruptedException;
 
     protected abstract void ensureRunning() throws IOException;
 
@@ -414,38 +490,6 @@ abstract class LogStreamState {
             }
             return builder.build();
         }
-    }
-
-    /**
-     * AWS calls which for security reasons may only happen on the master.
-     * An instance may be exported over the channel to allow the agent to obtain current information.
-     */
-    private interface MasterCalls {
-
-        @Nonnull Auth authenticate() throws IOException;
-
-        void notifyShutdown(String agentLogStreamName);
-
-    }
-
-    static final class StateSupplier implements SerializableOnlyOverRemoting {
-
-        private static final long serialVersionUID = 1;
-
-        private final String logGroupName;
-        private final String logStreamNameBase;
-        private final MasterCalls masterCalls;
-
-        StateSupplier(String logGroupName, String logStreamNameBase, MasterCalls masterCalls) {
-            this.logGroupName = logGroupName;
-            this.logStreamNameBase = logStreamNameBase;
-            this.masterCalls = masterCalls;
-        }
-
-        LogStreamState create() {
-            return onAgent(logGroupName, logStreamNameBase, masterCalls);
-        }
-
     }
 
 }
