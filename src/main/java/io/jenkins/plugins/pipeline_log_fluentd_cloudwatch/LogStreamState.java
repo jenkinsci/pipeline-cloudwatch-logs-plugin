@@ -101,6 +101,9 @@ abstract class LogStreamState {
 
         private @CheckForNull AWSLogs client;
         private final Set<String> agentLogStreamNames = new HashSet<>();
+        /** Tries to keep {@link Channel#export} from collecting things. TODO when do we discard these? */
+        @SuppressWarnings("MismatchedQueryAndUpdateOfCollection")
+        private final List<MasterCalls> masterCallRefs = new ArrayList<>();
 
         private MasterState(String logGroupName, String logStreamNameBase) {
             super(logGroupName, logStreamNameBase);
@@ -108,7 +111,9 @@ abstract class LogStreamState {
         }
 
         @Override protected StateSupplier remote() {
-            return new StateSupplier(logGroupName, logStreamNameBase, Channel.currentOrFail().export(MasterCalls.class, this));
+            MasterCalls masterCallRef = Channel.currentOrFail().export(MasterCalls.class, this);
+            masterCallRefs.add(masterCallRef);
+            return new StateSupplier(logGroupName, logStreamNameBase, masterCallRef);
         }
 
         @Override protected synchronized AWSLogs client() throws IOException {

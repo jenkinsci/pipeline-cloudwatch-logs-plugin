@@ -34,8 +34,6 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.io.UnsupportedEncodingException;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.logging.Level;
@@ -78,8 +76,6 @@ abstract class CloudWatchSender implements BuildListener, Closeable {
 
     static final class MasterSender extends CloudWatchSender {
 
-        private transient List<LogStreamState.StateSupplier> stateSuppliers;
-
         MasterSender(String logStreamNameBase, String buildId, String nodeId, TimestampTracker timestampTracker) throws IOException {
             super(logGroupName(), logStreamNameBase, buildId, nodeId, timestampTracker);
         }
@@ -100,12 +96,7 @@ abstract class CloudWatchSender implements BuildListener, Closeable {
             if (state == null) {
                 state = loadState();
             }
-            LogStreamState.StateSupplier stateSupplier = state.remote();
-            if (stateSuppliers == null) {
-                stateSuppliers = new ArrayList<>();
-            }
-            stateSuppliers.add(stateSupplier); // need to hold this so that Remoting will not unexport it; TODO does not seem to work
-            return new AgentSender(logGroupName, logStreamNameBase, buildId, nodeId, stateSupplier);
+            return new AgentSender(logGroupName, logStreamNameBase, buildId, nodeId, state.remote());
         }
 
     }
