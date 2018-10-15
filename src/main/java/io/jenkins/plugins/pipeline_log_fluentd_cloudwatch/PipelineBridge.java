@@ -25,6 +25,7 @@
 package io.jenkins.plugins.pipeline_log_fluentd_cloudwatch; // TODO minus fluentd
 
 import hudson.Extension;
+import hudson.ExtensionList;
 import hudson.console.AnnotatedLargeText;
 import hudson.model.BuildListener;
 import hudson.model.Queue;
@@ -46,6 +47,7 @@ import org.jenkinsci.plugins.workflow.log.LogStorageFactory;
 public final class PipelineBridge implements LogStorageFactory {
 
     private final Map<String, TimestampTracker> timestampTrackers = new ConcurrentHashMap<>();
+    private final Map<String, LogStorageImpl> impls = new ConcurrentHashMap<>();
 
     @Override
     public LogStorage forBuild(FlowExecutionOwner owner) {
@@ -64,10 +66,22 @@ public final class PipelineBridge implements LogStorageFactory {
         } catch (IOException x) {
             return new BrokenLogStorage(x);
         }
-        return new LogStorageImpl(logStreamNameBase, buildId, timestampTrackers);
+        return forIDs(logStreamNameBase, buildId);
+    }
+
+    static PipelineBridge get() {
+        return ExtensionList.lookupSingleton(PipelineBridge.class);
+    }
+
+    LogStorage forIDs(String logStreamNameBase, String buildId) {
+        return impls.computeIfAbsent(logStreamNameBase + "#" + buildId, k -> new LogStorageImpl(logStreamNameBase, buildId, timestampTrackers));
+    }
+
+    void close(String logStreamNameBase, String buildId) {
+        impls.remove(logStreamNameBase + "#" + buildId);
     }
     
-    static class LogStorageImpl implements LogStorage {
+    private static class LogStorageImpl implements LogStorage {
 
         private final String logStreamNameBase;
         private final String buildId;
@@ -81,12 +95,12 @@ public final class PipelineBridge implements LogStorageFactory {
 
         @Override
         public BuildListener overallListener() throws IOException, InterruptedException {
-            return new CloudWatchSender(logStreamNameBase, buildId, null, timestampTracker());
+            return new CloudWatchSender.MasterSender(logStreamNameBase, buildId, null, timestampTracker());
         }
 
         @Override
         public TaskListener nodeListener(FlowNode node) throws IOException, InterruptedException {
-            return new CloudWatchSender(logStreamNameBase, buildId, node.getId(), timestampTracker());
+            return new CloudWatchSender.MasterSender(logStreamNameBase, buildId, node.getId(), timestampTracker());
         }
 
         @Override
