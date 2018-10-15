@@ -41,6 +41,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import javax.annotation.CheckForNull;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 import jenkins.util.JenkinsJVM;
 import net.sf.json.JSONObject;
 
@@ -63,7 +64,7 @@ abstract class CloudWatchSender implements BuildListener, Closeable {
     private transient @CheckForNull PrintStream logger;
     @SuppressFBWarnings(value = "IS2_INCONSISTENT_SYNC", justification = "Only need to synchronize initialization; thereafter it remains set.")
     private transient @CheckForNull TimestampTracker timestampTracker;
-    protected transient @CheckForNull LogStreamState state;
+    protected transient @Nullable LogStreamState state;
 
     protected CloudWatchSender(@Nonnull String logGroupName, @Nonnull String logStreamNameBase, @Nonnull String buildId, @CheckForNull String nodeId, @CheckForNull TimestampTracker timestampTracker) {
         this.logGroupName = Objects.requireNonNull(logGroupName);
@@ -76,6 +77,8 @@ abstract class CloudWatchSender implements BuildListener, Closeable {
     protected abstract LogStreamState loadState();
 
     static final class MasterSender extends CloudWatchSender {
+
+        private static final long serialVersionUID = 1;
 
         MasterSender(String logStreamNameBase, String buildId, String nodeId, TimestampTracker timestampTracker) throws IOException {
             super(logGroupName(), logStreamNameBase, buildId, nodeId, timestampTracker);
@@ -104,8 +107,10 @@ abstract class CloudWatchSender implements BuildListener, Closeable {
 
     static final class AgentSender extends CloudWatchSender {
 
+        private static final long serialVersionUID = 1;
+
         private final String token;
-        private Channel channel;
+        private transient Channel channel;
 
         AgentSender(String logGroupName, String logStreamNameBase, String buildId, String nodeId, String token) {
             super(logGroupName, logStreamNameBase, buildId, nodeId, /* do not currently bother to record events from agent side */null);
