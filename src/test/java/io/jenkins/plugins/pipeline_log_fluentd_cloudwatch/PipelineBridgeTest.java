@@ -46,11 +46,11 @@ import io.jenkins.plugins.aws.global_configuration.CredentialsAwsGlobalConfigura
 import java.io.IOException;
 import java.util.UUID;
 import java.util.logging.Formatter;
+import java.util.logging.Handler;
 import java.util.logging.Level;
 import java.util.logging.LogRecord;
 import java.util.logging.Logger;
 import java.util.logging.SimpleFormatter;
-import java.util.logging.StreamHandler;
 import jenkins.security.MasterToSlaveCallable;
 import static org.hamcrest.Matchers.*;
 import org.jenkinsci.plugins.workflow.log.LogStorage;
@@ -89,7 +89,6 @@ public class PipelineBridgeTest extends LogStorageTestBase {
     @TestExtension public static final class RemoteLogs extends ComputerListener {
         @Override public void onOnline(Computer c, TaskListener listener) throws IOException, InterruptedException {
             if (c instanceof SlaveComputer) {
-                // TODO this does not work
                 c.getChannel().call(new RemoteLogDumper(c.getDisplayName()));
             }
         }
@@ -100,23 +99,20 @@ public class PipelineBridgeTest extends LogStorageTestBase {
                 this.name = name;
             }
             @Override public Void call() throws RuntimeException {
-                new Thread(() -> {
-                    StreamHandler consoleHandler = new StreamHandler() {
-                        {
-                            setOutputStream(stderr.getLogger());
+                Handler handler = new Handler() {
+                    final Formatter formatter = new SimpleFormatter();
+                    @Override public void publish(LogRecord record) {
+                        if (isLoggable(record)) {
+                            stderr.getLogger().print(formatter.format(record).replaceAll("(?m)^", "[" + name + "] "));
                         }
-                    };
-                    consoleHandler.setLevel(Level.ALL);
-                    consoleHandler.setFormatter(new Formatter() {
-                        final Formatter delegate = new SimpleFormatter();
-                        @Override public String format(LogRecord record) {
-                            return delegate.format(record).replaceAll("(?m)^", "[" + name + "] ");
-                        }
-                    });
-                    Logger logger = Logger.getLogger(PipelineBridge.class.getPackage().getName());
-                    logger.setLevel(Level.FINER);
-                    logger.addHandler(consoleHandler);
-                }, "RemoteLogDumper").start();
+                    }
+                    @Override public void flush() {}
+                    @Override public void close() throws SecurityException {}
+                };
+                handler.setLevel(Level.ALL);
+                Logger logger = Logger.getLogger(PipelineBridge.class.getPackage().getName());
+                logger.setLevel(Level.FINER);
+                logger.addHandler(handler);
                 return null;
             }
         }
