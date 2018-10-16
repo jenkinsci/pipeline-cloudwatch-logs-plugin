@@ -444,7 +444,7 @@ abstract class LogStreamState {
                     break MAIN;
                 } catch (SdkBaseException x) {
                     // E.g.: AWSLogsException: Rate exceeded (Service: AWSLogs; Status Code: 400; Error Code: ThrottlingException; Request ID: …)
-                    LOGGER.log(Level.FINE, "could throw up IOException to be swallowed by PrintStream or sent to master by DurableTaskStep but instead retrying", x);
+                    LOGGER.log(Level.FINE, "retrying", x);
                     try {
                         Thread.sleep(1000); // TODO exponential backoff, and limit number of retries before giving up
                     } catch (InterruptedException x2) {
