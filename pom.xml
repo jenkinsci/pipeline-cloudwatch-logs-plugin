@@ -123,6 +123,11 @@
             <version>${powermock.version}</version>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>org.jenkins-ci.plugins</groupId>
+            <artifactId>aws-credentials</artifactId>
+            <version>1.24-rc76.eb913007d21e</version> <!-- TODO https://github.com/jenkinsci/aws-credentials-plugin/pull/46 -->
+        </dependency>
     </dependencies>
     <dependencyManagement>
         <dependencies>

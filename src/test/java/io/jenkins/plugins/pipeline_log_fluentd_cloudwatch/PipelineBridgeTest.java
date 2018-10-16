@@ -24,15 +24,7 @@
 
 package io.jenkins.plugins.pipeline_log_fluentd_cloudwatch;
 
-import com.amazonaws.auth.AWSCredentials;
-import com.amazonaws.auth.BasicSessionCredentials;
-import com.amazonaws.auth.DefaultAWSCredentialsProviderChain;
-import com.amazonaws.auth.InstanceProfileCredentialsProvider;
-import com.amazonaws.services.securitytoken.AWSSecurityTokenServiceClientBuilder;
-import com.amazonaws.services.securitytoken.model.AssumeRoleRequest;
-import com.amazonaws.services.securitytoken.model.AssumeRoleResult;
 import com.cloudbees.jenkins.plugins.awscredentials.AWSCredentialsImpl;
-import com.cloudbees.jenkins.plugins.awscredentials.BaseAmazonWebServicesCredentials;
 import com.cloudbees.plugins.credentials.CredentialsScope;
 import com.cloudbees.plugins.credentials.SystemCredentialsProvider;
 import hudson.ExtensionList;
@@ -75,7 +67,7 @@ public class PipelineBridgeTest extends LogStorageTestBase {
         String credentialsId = null;
         if (role != null) {
             credentialsId = "aws";
-            SystemCredentialsProvider.getInstance().getCredentials().add(new AssumedRoleCreds(role, CredentialsScope.GLOBAL, credentialsId, null));
+            SystemCredentialsProvider.getInstance().getCredentials().add(new AWSCredentialsImpl(CredentialsScope.GLOBAL, credentialsId, null, null, null, role, null));
             CredentialsAwsGlobalConfiguration.get().setCredentialsId(credentialsId);
         }
         CloudWatchAwsGlobalConfiguration configuration = ExtensionList.lookupSingleton(CloudWatchAwsGlobalConfiguration.class);
@@ -116,47 +108,6 @@ public class PipelineBridgeTest extends LogStorageTestBase {
                 return null;
             }
         }
-    }
-
-    /**
-     * {@link AWSCredentialsImpl} does permit access and secret key to be null.
-     * But then it uses {@link InstanceProfileCredentialsProvider} which is not necessarily what we want:
-     * that does not, for example, support {@code ~/.aws/credentials} plus {@code AWS_PROFILE} as in {@link DefaultAWSCredentialsProviderChain}.
-     * Arguably that should be generalized in {@link AWSCredentialsImpl},
-     * amending <a href="https://github.com/jenkinsci/aws-credentials-plugin/pull/20">PR 20</a>.
-     */
-    private static class AssumedRoleCreds extends BaseAmazonWebServicesCredentials {
-
-        private final String role;
-
-        AssumedRoleCreds(String role, CredentialsScope scope, String id, String description) {
-            super(scope, id, description);
-            this.role = role;
-        }
-
-        @Override public AWSCredentials getCredentials() {
-            //AWSCredentials initialCredentials = DefaultAWSCredentialsProviderChain.getInstance().getCredentials();
-            AssumeRoleResult r = AWSSecurityTokenServiceClientBuilder.defaultClient().assumeRole(new AssumeRoleRequest()
-                    .withRoleArn(role)
-                    .withRoleSessionName("PipelineBridgeTest"));
-            return new BasicSessionCredentials(
-                    r.getCredentials().getAccessKeyId(),
-                    r.getCredentials().getSecretAccessKey(),
-                    r.getCredentials().getSessionToken());
-        }
-
-        @Override public String getDisplayName() {
-            return getId();
-        }
-
-        @Override public AWSCredentials getCredentials(String mfaToken) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override public void refresh() {
-            // no-op
-        }
-
     }
 
     @Override protected LogStorage createStorage() throws Exception {

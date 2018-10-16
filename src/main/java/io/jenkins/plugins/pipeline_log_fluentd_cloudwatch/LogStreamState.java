@@ -48,8 +48,10 @@ import com.amazonaws.services.securitytoken.model.AssumeRoleResult;
 import com.amazonaws.services.securitytoken.model.Credentials;
 import com.amazonaws.services.securitytoken.model.GetFederationTokenRequest;
 import com.amazonaws.services.securitytoken.model.GetFederationTokenResult;
+import com.cloudbees.jenkins.plugins.awscredentials.AWSCredentialsImpl;
 import com.cloudbees.jenkins.plugins.awscredentials.AmazonWebServicesCredentials;
 import hudson.ExtensionList;
+import hudson.Util;
 import hudson.remoting.Channel;
 import io.jenkins.plugins.aws.global_configuration.CredentialsAwsGlobalConfiguration;
 import java.io.IOException;
@@ -201,8 +203,10 @@ abstract class LogStreamState {
             }
             if (masterCredentials instanceof AWSSessionCredentials) {
                 // otherwise would just throw AWSSecurityTokenServiceException: Cannot call GetFederationToken with session credentials
-                // TODO just check for ((AWSCredentialsImpl) jenkinsCredentials).getIamRoleArn() if that is fixed to use the default provider chain
-                String role = System.getenv("AWS_ROLE");
+                String role = null;
+                if (jenkinsCredentials instanceof AWSCredentialsImpl) {
+                    role = Util.fixEmpty(((AWSCredentialsImpl) jenkinsCredentials).getIamRoleArn());
+                }
                 if (role != null) {
                     // TODO would be cleaner if AmazonWebServicesCredentials had a getCredentials overload taking a policy
                     builder = AWSSecurityTokenServiceClientBuilder.standard();
