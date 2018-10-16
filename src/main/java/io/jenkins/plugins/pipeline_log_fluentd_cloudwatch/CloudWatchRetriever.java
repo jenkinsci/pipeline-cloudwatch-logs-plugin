@@ -54,6 +54,7 @@ import com.amazonaws.services.logs.model.ResourceNotFoundException;
 
 import hudson.AbortException;
 import hudson.ExtensionList;
+import hudson.Main;
 import hudson.console.AnnotatedLargeText;
 import hudson.console.ConsoleAnnotationOutputStream;
 import java.io.InputStream;
@@ -117,13 +118,12 @@ class CloudWatchRetriever {
 
         @Override
         public long writeHtmlTo(long start, final Writer w) throws IOException {
-            /* TODO check if there any equivalent that can collate multiple streams
             if (start == 0 && !Main.isUnitTest) { // would mess up PipelineBridgeTest
-                String url = "https://console.aws.amazon.com/cloudwatch/home#logEventViewer:group=" + logGroupName + ";stream=" + logStreamName + ";filter=%257B%2524.build%2520%253D%2520%2522" + buildId + "%2522%257D";
+                // TODO will not display agent-generated messages; could use DescribeLogStreams to generate all links but there might be a lot
+                String url = "https://console.aws.amazon.com/cloudwatch/home#logEventViewer:group=" + logGroupName + ";stream=" + logStreamNameBase + "@master;filter=%257B%2524.build%2520%253D%2520%2522" + buildId + "%2522%257D";
                 w.write("[view in <a href=\"" + url + "\" target=\"_blank\">AWS Console</a> if authorized]\n");
                 // Should not affect the return value at all: Blue Ocean does not use writeHtmlTo, and regular console is not counting bytes.
             }
-            */
             AtomicInteger line = new AtomicInteger();
             if (start > 0) {
                 long remaining = start;
