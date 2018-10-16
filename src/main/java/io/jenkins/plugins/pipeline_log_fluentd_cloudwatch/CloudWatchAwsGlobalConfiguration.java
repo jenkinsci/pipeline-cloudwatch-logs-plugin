@@ -151,6 +151,7 @@ public class CloudWatchAwsGlobalConfiguration extends AbstractAwsGlobalConfigura
 
         try {
             filter(client, logGroupName);
+            // TODO should also check DescribeLogStreams, and perhaps even CreateLogStream and PutLogEvents, to ensure roles are correct
         } catch (Throwable t) {
             String msg = processExceptionMessage(t);
             ret = FormValidation.error(StringUtils.abbreviate(msg, 200));
