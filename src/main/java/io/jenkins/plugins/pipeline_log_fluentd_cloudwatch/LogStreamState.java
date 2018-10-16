@@ -36,6 +36,7 @@ import com.amazonaws.services.logs.model.CreateLogStreamRequest;
 import com.amazonaws.services.logs.model.DescribeLogStreamsRequest;
 import com.amazonaws.services.logs.model.DescribeLogStreamsResult;
 import com.amazonaws.services.logs.model.InputLogEvent;
+import com.amazonaws.services.logs.model.InvalidParameterException;
 import com.amazonaws.services.logs.model.InvalidSequenceTokenException;
 import com.amazonaws.services.logs.model.LogStream;
 import com.amazonaws.services.logs.model.PutLogEventsRequest;
@@ -54,6 +55,7 @@ import io.jenkins.plugins.aws.global_configuration.CredentialsAwsGlobalConfigura
 import java.io.IOException;
 import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -418,6 +420,7 @@ abstract class LogStreamState {
             }
             // TODO as per https://docs.aws.amazon.com/AmazonCloudWatchLogs/latest/APIReference/API_PutLogEvents.html verify that total size <1Mb (no documented error class for excess size?)
             assert !processing.isEmpty();
+            processing.sort(Comparator.comparing(InputLogEvent::getTimestamp));
             while (true) {
                 try {
                     PutLogEventsResult result = currentClient.putLogEvents(new PutLogEventsRequest().
@@ -436,6 +439,9 @@ abstract class LogStreamState {
                     LOGGER.fine("Recovering from InvalidSequenceTokenException");
                     sequenceToken = x.getExpectedSequenceToken();
                     // and retry
+                } catch (InvalidParameterException x) {
+                    LOGGER.log(Level.WARNING, null, x);
+                    break MAIN;
                 } catch (SdkBaseException x) {
                     // E.g.: AWSLogsException: Rate exceeded (Service: AWSLogs; Status Code: 400; Error Code: ThrottlingException; Request ID: …)
                     LOGGER.log(Level.FINE, "could throw up IOException to be swallowed by PrintStream or sent to master by DurableTaskStep but instead retrying", x);

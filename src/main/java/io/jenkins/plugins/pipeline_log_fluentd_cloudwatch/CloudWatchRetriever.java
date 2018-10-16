@@ -179,10 +179,9 @@ class CloudWatchRetriever {
      */
     private boolean couldBeComplete() {
         return timestampTracker.checkCompletion(timestamp -> {
-            // TODO consider withStartTime(timestamp)
             List<FilteredLogEvent> events;
             try {
-                events = client.filterLogEvents(createFilter().withFilterPattern("{$.timestamp = " + timestamp + "}").withLimit(1)).getEvents();
+                events = client.filterLogEvents(createFilter().withLimit(1).withStartTime(timestamp)).getEvents();
             } catch (ResourceNotFoundException e) {
                 LOGGER.log(Level.FINE, "{0} or its stream {1}@* do not exist: {2}", new Object[] {logGroupName, logStreamNameBase, e.getMessage()});
                 return false;
@@ -216,8 +215,7 @@ class CloudWatchRetriever {
                     token = result.getNextToken();
                     List<FilteredLogEvent> events = result.getEvents();
                     LOGGER.log(Level.FINER, "event count {0} from group={1} stream={2}@* buildId={3} nodeId={4}", new Object[] {events.size(), logGroupName, logStreamNameBase, buildId, nodeId});
-                    // TODO remove timestamp from JSON
-                    events.sort(Comparator.comparingLong(e -> JSONObject.fromObject(e.getMessage()).optLong("timestamp", e.getTimestamp())));
+                    events.sort(Comparator.comparing(FilteredLogEvent::getTimestamp)); // TODO is this necessary or is it already sorted?
                     for (FilteredLogEvent event : events) {
                         // TODO perhaps translate event.timestamp to a TimestampNote
                         JSONObject json = JSONObject.fromObject(event.getMessage());

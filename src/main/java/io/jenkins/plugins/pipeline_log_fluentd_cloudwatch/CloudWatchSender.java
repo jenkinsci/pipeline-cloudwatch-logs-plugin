@@ -173,7 +173,6 @@ abstract class CloudWatchSender implements BuildListener, Closeable {
             }
             assert timestampTracker != null : "getLogger which creates CloudWatchOutputStream initializes it";
             long now = timestampTracker.eventSent(); // when the logger prints something, *not* when we send it to CWL
-            data.put("timestamp", now); // TODO remove
             try {
                 if (state.offer(new InputLogEvent().
                         withTimestamp(now).
