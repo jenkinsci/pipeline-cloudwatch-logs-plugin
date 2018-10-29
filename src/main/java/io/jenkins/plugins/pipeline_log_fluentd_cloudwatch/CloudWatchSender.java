@@ -154,6 +154,7 @@ abstract class CloudWatchSender implements BuildListener, Closeable {
             // Note that this does not necessarily shut down the AWSLogs client; that is shared across builds.
             PipelineBridge.get().close(logStreamNameBase, buildId);
         }
+        // TODO flush, and make CloudWatchOutputStream.flush force LogStreamState to empty its queue
     }
 
     private class CloudWatchOutputStream extends LineTransformationOutputStream {
