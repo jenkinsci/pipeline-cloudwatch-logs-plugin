@@ -58,6 +58,7 @@ import hudson.Main;
 import hudson.console.AnnotatedLargeText;
 import hudson.console.ConsoleAnnotationOutputStream;
 import java.io.InputStream;
+import java.net.URLEncoder;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import net.sf.json.JSONObject;
@@ -120,7 +121,9 @@ class CloudWatchRetriever {
         public long writeHtmlTo(long start, final Writer w) throws IOException {
             if (start == 0 && !Main.isUnitTest) { // would mess up PipelineBridgeTest
                 // TODO will not display agent-generated messages; could use DescribeLogStreams to generate all links but there might be a lot
-                String url = "https://console.aws.amazon.com/cloudwatch/home#logEventViewer:group=" + logGroupName + ";stream=" + logStreamNameBase + "@master;filter=%257B%2524.build%2520%253D%2520%2522" + buildId + "%2522%257D";
+                // TODO add a DisplayURLProvider (off by default) linking here for affected builds
+                String url = "https://console.aws.amazon.com/cloudwatch/home#logEventViewer:group=" + logGroupName + ";stream=" + logStreamNameBase + "@master;filter=" +
+                    URLEncoder.encode(URLEncoder.encode("{$.build = \"" + buildId + "\"}", "UTF-8").replace("+", "%20"), "UTF-8");
                 w.write("[view in <a href=\"" + url + "\" target=\"_blank\">AWS Console</a> if authorized]\n");
                 // Should not affect the return value at all: Blue Ocean does not use writeHtmlTo, and regular console is not counting bytes.
             }
