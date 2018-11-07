@@ -146,6 +146,7 @@ abstract class CloudWatchSender implements BuildListener, Closeable {
 
     @Override
     public synchronized final void close() throws IOException {
+        state.flush();
         if (logger != null) {
             LOGGER.log(Level.FINE, "closing {0}/{1}#{2}", new Object[] {logStreamNameBase, buildId, nodeId});
             logger = null;
@@ -154,7 +155,6 @@ abstract class CloudWatchSender implements BuildListener, Closeable {
             // Note that this does not necessarily shut down the AWSLogs client; that is shared across builds.
             PipelineBridge.get().close(logStreamNameBase, buildId);
         }
-        // TODO flush, and make CloudWatchOutputStream.flush force LogStreamState to empty its queue
     }
 
     private class CloudWatchOutputStream extends LineTransformationOutputStream {
@@ -185,6 +185,11 @@ abstract class CloudWatchSender implements BuildListener, Closeable {
             } catch (Exception x) {
                 LOGGER.log(Level.WARNING, "failed to send a message", x);
             }
+        }
+
+        @Override
+        public void flush() throws IOException {
+            state.flush();
         }
 
     }

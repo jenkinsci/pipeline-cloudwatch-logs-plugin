@@ -464,6 +464,21 @@ abstract class LogStreamState {
         shutDown();
     }
 
+    void flush() throws IOException {
+        LOGGER.log(Level.FINE, "flushing {0}", logStreamNameBase);
+        for (int i = 0; i < /* 1m */600; i++) {
+            if (events.isEmpty()) {
+                return;
+            }
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException x) {
+                throw new IOException(x);
+            }
+        }
+        throw new IOException("there are still unflushed log events");
+    }
+
     /**
      * Authentication to AWS.
      * Used from agent JVMs.
