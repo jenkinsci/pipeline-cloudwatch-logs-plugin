@@ -136,7 +136,7 @@ abstract class CloudWatchSender implements BuildListener, Closeable {
             }
             state = loadState();
             try {
-                logger = new PrintStream(new CloudWatchOutputStream(), true, "UTF-8");
+                logger = new PrintStream(new CloudWatchOutputStream(), false, "UTF-8");
             } catch (UnsupportedEncodingException x) {
                 throw new AssertionError(x);
             }
