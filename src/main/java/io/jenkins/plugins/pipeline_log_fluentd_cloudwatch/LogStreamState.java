@@ -35,6 +35,7 @@ import com.amazonaws.services.logs.AWSLogsClientBuilder;
 import com.amazonaws.services.logs.model.CreateLogStreamRequest;
 import com.amazonaws.services.logs.model.DescribeLogStreamsRequest;
 import com.amazonaws.services.logs.model.DescribeLogStreamsResult;
+import com.amazonaws.services.logs.model.GetLogEventsRequest;
 import com.amazonaws.services.logs.model.InputLogEvent;
 import com.amazonaws.services.logs.model.InvalidParameterException;
 import com.amazonaws.services.logs.model.InvalidSequenceTokenException;
@@ -110,6 +111,7 @@ abstract class LogStreamState {
     protected final String logGroupName;
     protected final String logStreamNameBase;
     private final @Nonnull BlockingQueue<InputLogEvent> events = new ArrayBlockingQueue<>(10_000); // https://docs.aws.amazon.com/AmazonCloudWatchLogs/latest/APIReference/API_PutLogEvents.html max batch size
+    private long lastOffered;
 
     private LogStreamState(String logGroupName, String logStreamNameBase) {
         this.logGroupName = logGroupName;
@@ -259,7 +261,8 @@ abstract class LogStreamState {
         /** @see <a href="https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/iam-access-control-overview-cwl.html">Reference</a> */
         private String policy(String agentLogStreamName) {
             return "{\"Version\": \"2012-10-17\", \"Statement\": [" +
-                   "{\"Effect\": \"Allow\", \"Action\": [\"logs:PutLogEvents\"], \"Resource\": [\"arn:aws:logs:*:*:log-group:" + logGroupName + ":log-stream:" + agentLogStreamName + "\"]}" +
+                   "{\"Effect\": \"Allow\", \"Action\": [\"logs:PutLogEvents\", \"logs:GetLogEvents\"], " +
+                    "\"Resource\": [\"arn:aws:logs:*:*:log-group:" + logGroupName + ":log-stream:" + agentLogStreamName + "\"]}" +
                    "]}";
         }
 
@@ -404,6 +407,7 @@ abstract class LogStreamState {
 
     boolean offer(InputLogEvent event) throws IOException, InterruptedException {
         ensureRunning();
+        lastOffered = Math.max(lastOffered, event.getTimestamp());
         return events.offer(event, 1, TimeUnit.MINUTES);
     }
 
@@ -480,13 +484,30 @@ abstract class LogStreamState {
 
     void flush() throws IOException {
         LOGGER.log(Level.FINE, "flushing {0}", logStreamNameBase);
-        for (int i = 0; i < /* 1m */600; i++) {
-            if (events.isEmpty()) {
-                return;
-            }
+        long start = System.nanoTime();
+        while (System.nanoTime() - start < TimeUnit.MINUTES.toNanos(1)) {
             try {
+                if (events.isEmpty()) {
+                    if (lastOffered > 0) {
+                        LOGGER.log(Level.FINER, "all events up to {0} delivered in {1}; confirming receipt", new Object[] {lastOffered, logStreamNameBase});
+                        String logStreamName = logStreamName();
+                        if (client().getLogEvents(new GetLogEventsRequest(logGroupName, logStreamName).withLimit(1).withStartTime(lastOffered)).getEvents().isEmpty()) {
+                            LOGGER.log(Level.FINER, "delivered an event in {0} with timestamp={1} but it has not yet been received", new Object[] {logStreamName, lastOffered});
+                        } else {
+                            LOGGER.log(Level.FINER, "confirmed event delivery in {0} with timestamp={1}", new Object[] {logStreamName, lastOffered});
+                            return;
+                        }
+                    } else {
+                        LOGGER.log(Level.FINER, "no events delivered in {0}", logStreamNameBase);
+                        return;
+                    }
+                }
                 Thread.sleep(100);
-            } catch (InterruptedException x) {
+            } catch (IOException x) {
+                LOGGER.log(Level.FINER, null, x);
+                throw x;
+            } catch (Exception x) {
+                LOGGER.log(Level.FINER, null, x);
                 throw new IOException(x);
             }
         }
