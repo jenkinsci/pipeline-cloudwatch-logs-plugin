@@ -160,15 +160,17 @@ abstract class LogStreamState {
 
         private void create(String logStreamName) throws IOException {
             AWSLogs currentClient = client();
-            DescribeLogStreamsResult r = currentClient.describeLogStreams(new DescribeLogStreamsRequest(logGroupName).withLogStreamNamePrefix(logStreamName));
             boolean found = false;
-            // TODO handle paging, in case we have a lot of similarly-named jobs
-            for (LogStream ls : r.getLogStreams()) {
-                if (ls.getLogStreamName().equals(logStreamName)) {
-                    found = true;
-                    break;
+            String token = null;
+            do {
+                DescribeLogStreamsResult r = currentClient.describeLogStreams(new DescribeLogStreamsRequest(logGroupName).withLogStreamNamePrefix(logStreamName).withNextToken(token));
+                for (LogStream ls : r.getLogStreams()) {
+                    if (ls.getLogStreamName().equals(logStreamName)) {
+                        found = true;
+                    }
                 }
-            }
+                token = r.getNextToken();
+            } while (!found && token != null);
             if (!found) {
                 // First-time project.
                 LOGGER.log(Level.FINE, "Creating {0}", logStreamName);

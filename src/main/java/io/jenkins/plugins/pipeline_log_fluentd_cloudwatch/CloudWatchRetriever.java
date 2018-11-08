@@ -60,7 +60,6 @@ import hudson.console.ConsoleAnnotationOutputStream;
 import java.io.InputStream;
 import java.net.URLEncoder;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.stream.Collectors;
 import net.sf.json.JSONObject;
 
 /**
@@ -236,8 +235,16 @@ class CloudWatchRetriever {
     }
 
     private FilterLogEventsRequest createFilter() {
-        DescribeLogStreamsResult r = client.describeLogStreams(new DescribeLogStreamsRequest(logGroupName).withLogStreamNamePrefix(logStreamNameBase + "@")); // TODO paging
-        List<String> logStreamNames = r.getLogStreams().stream().map(LogStream::getLogStreamName).collect(Collectors.toList());
+        List<String> logStreamNames = new ArrayList<>();
+        String token = null;
+        do {
+            DescribeLogStreamsResult r = client.describeLogStreams(new DescribeLogStreamsRequest(logGroupName).withLogStreamNamePrefix(logStreamNameBase + "@").withNextToken(token));
+            for (LogStream ls : r.getLogStreams()) {
+                logStreamNames.add(ls.getLogStreamName());
+            }
+            token = r.getNextToken();
+        } while (token != null);
+        LOGGER.finest("filtering based on " + logStreamNames);
         return new FilterLogEventsRequest().
             withLogGroupName(logGroupName).
             withInterleaved(true).
