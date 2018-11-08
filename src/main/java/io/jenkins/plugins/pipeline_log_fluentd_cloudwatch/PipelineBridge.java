@@ -46,6 +46,11 @@ import org.jenkinsci.plugins.workflow.log.LogStorageFactory;
 @Extension
 public final class PipelineBridge implements LogStorageFactory {
 
+    static {
+        // Make sure JENKINS-52165 is enabled, or performance will be awful for remote shell steps.
+        System.setProperty("org.jenkinsci.plugins.workflow.steps.durable_task.DurableTaskStep.USE_WATCHING", "true");
+    }
+
     private final Map<String, TimestampTracker> timestampTrackers = new ConcurrentHashMap<>();
     private final Map<String, LogStorageImpl> impls = new ConcurrentHashMap<>();
 
