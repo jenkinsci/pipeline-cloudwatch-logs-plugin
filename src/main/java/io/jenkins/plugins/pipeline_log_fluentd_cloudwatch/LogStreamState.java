@@ -66,6 +66,7 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import javax.annotation.CheckForNull;
@@ -178,7 +179,7 @@ abstract class LogStreamState {
             }
         }
 
-        Auth authenticate() throws IOException {
+        Auth authenticate(@CheckForNull AtomicReference<String> validation) throws IOException {
             AWSSecurityTokenServiceClientBuilder builder = AWSSecurityTokenServiceClientBuilder.standard();
             CredentialsAwsGlobalConfiguration credentialsConfig = CredentialsAwsGlobalConfiguration.get();
             String region = credentialsConfig.getRegion();
@@ -228,14 +229,17 @@ abstract class LogStreamState {
                     remotedAccessKeyId = masterCredentials.getAWSAccessKeyId();
                     remotedSecretAccessKey = masterCredentials.getAWSSecretKey();
                     remotedSessionToken = ((AWSSessionCredentials) masterCredentials).getSessionToken();
-                    // TODO move warnings like these to CloudWatchAwsGlobalConfiguration.validate
-                    LOGGER.log(Level.WARNING, "Giving up on limiting session credentials to a policy; using {0} as is", remotedAccessKeyId);
+                    if (validation != null) {
+                        validation.set("Giving up on limiting session credentials to a policy; using " + remotedAccessKeyId + " as is");
+                    }
                 }
             } else if (masterCredentials == null) {
                 remotedAccessKeyId = null;
                 remotedSecretAccessKey = null;
                 remotedSessionToken = null;
-                LOGGER.log(Level.WARNING, "No AWS credentials to be found, giving up on limiting to a policy");
+                if (validation != null) {
+                    validation.set("No AWS credentials to be found, giving up on limiting to a policy");
+                }
             } else {
                 GetFederationTokenResult r = builder.build().getFederationToken(new GetFederationTokenRequest().
                         withName("CloudWatchSender"). // TODO as above?
@@ -246,7 +250,9 @@ abstract class LogStreamState {
                 remotedSessionToken = credentials.getSessionToken();
                 LOGGER.log(Level.FINE, "GetFederationToken succeeded; using {0}", remotedAccessKeyId);
             }
-            create(agentLogStreamName);
+            if (validation == null) {
+                create(agentLogStreamName);
+            }
             return new Auth(remotedAccessKeyId, remotedSecretAccessKey, remotedSessionToken, region, agentLogStreamName);
         }
 
@@ -265,6 +271,12 @@ abstract class LogStreamState {
 
     }
     
+    static @CheckForNull String validate(@Nonnull String logGroupName) throws IOException {
+        AtomicReference<String> message = new AtomicReference<>();
+        ((MasterState) onMaster(logGroupName, "__example__")).authenticate(message);
+        return message.get();
+    }
+
     private static abstract class SecuredCallable<V, T extends Throwable> extends SlaveToMasterCallable<V, T> {
         
         private static final long serialVersionUID = 1;
@@ -300,7 +312,7 @@ abstract class LogStreamState {
         }
 
         @Override protected Auth doCall(MasterState state) throws IOException {
-            return state.authenticate();
+            return state.authenticate(null);
         }
 
     }

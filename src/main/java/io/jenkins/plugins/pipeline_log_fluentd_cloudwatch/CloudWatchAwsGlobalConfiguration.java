@@ -131,22 +131,20 @@ public class CloudWatchAwsGlobalConfiguration extends AbstractAwsGlobalConfigura
 
     @RequirePOST
     public FormValidation doValidate(@QueryParameter String logGroupName, @QueryParameter String region,
-            @QueryParameter String credentialsId) throws IOException {
+            @QueryParameter String credentialsId) {
         Jenkins.get().checkPermission(Jenkins.ADMINISTER);
         return validate(logGroupName, Util.fixEmptyAndTrim(region), Util.fixEmptyAndTrim(credentialsId));
     }
 
     @Restricted(NoExternalUse.class)
-    FormValidation validate(String logGroupName, String region, String credentialsId) throws IOException {
-        FormValidation ret = FormValidation.ok("success");
+    FormValidation validate(String logGroupName, String region, String credentialsId) {
         AWSLogs client;
         try {
             AWSLogsClientBuilder builder = getAWSLogsClientBuilder(region, credentialsId);
             client = builder.build();
         } catch (Throwable t) {
             String msg = processExceptionMessage(t);
-            ret = FormValidation.error("Unable to validate credentials: " + StringUtils.abbreviate(msg, 200));
-            return ret;
+            return FormValidation.error("Unable to validate credentials: " + StringUtils.abbreviate(msg, 200));
         }
 
         try {
@@ -154,9 +152,18 @@ public class CloudWatchAwsGlobalConfiguration extends AbstractAwsGlobalConfigura
             // TODO should also check DescribeLogStreams, and perhaps even CreateLogStream and PutLogEvents, to ensure roles are correct
         } catch (Throwable t) {
             String msg = processExceptionMessage(t);
-            ret = FormValidation.error(StringUtils.abbreviate(msg, 200));
+            return FormValidation.error(StringUtils.abbreviate(msg, 200));
         }
-        return ret;
+        try {
+            String message = LogStreamState.validate(logGroupName);
+            if (message != null) {
+                return FormValidation.warning(message);
+            }
+        } catch (Throwable t) {
+            String msg = processExceptionMessage(t);
+            return FormValidation.error("Unable to simulate policy restriction: " + StringUtils.abbreviate(msg, 200));
+        }
+        return FormValidation.ok("success");
     }
 
     @Restricted(NoExternalUse.class)
