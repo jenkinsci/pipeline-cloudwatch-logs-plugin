@@ -146,7 +146,9 @@ abstract class CloudWatchSender implements BuildListener, Closeable {
 
     @Override
     public synchronized final void close() throws IOException {
-        state.flush();
+        if (state != null) {
+            state.flush();
+        }
         if (logger != null) {
             LOGGER.log(Level.FINE, "closing {0}/{1}#{2}", new Object[] {logStreamNameBase, buildId, nodeId});
             logger = null;
