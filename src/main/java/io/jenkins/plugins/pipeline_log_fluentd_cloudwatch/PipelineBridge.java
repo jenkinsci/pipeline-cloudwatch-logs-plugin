@@ -24,6 +24,7 @@
 
 package io.jenkins.plugins.pipeline_log_fluentd_cloudwatch; // TODO minus fluentd
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import hudson.Extension;
 import hudson.ExtensionList;
 import hudson.console.AnnotatedLargeText;
@@ -133,6 +134,7 @@ public final class PipelineBridge implements LogStorageFactory {
             }
         }
 
+        @SuppressFBWarnings(value = "BC_UNCONFIRMED_CAST", justification = "forBuild only accepts Run")
         @Deprecated
         @Override
         public File getLogFile(FlowExecutionOwner.Executable build, boolean complete) {
