@@ -4,7 +4,7 @@
     <parent>
         <groupId>org.jenkins-ci.plugins</groupId>
         <artifactId>plugin</artifactId>
-        <version>3.25</version>
+        <version>3.28</version>
         <relativePath />
     </parent>
     <groupId>io.jenkins.plugins</groupId>
@@ -17,7 +17,7 @@
         <jenkins.version>2.138.2</jenkins.version>
         <java.level>8</java.level>
         <useBeta>true</useBeta>
-        <workflow-api-plugin.version>2.31</workflow-api-plugin.version>
+        <workflow-api-plugin.version>2.32-rc862.5f9ac65fd5f2</workflow-api-plugin.version> <!-- TODO https://github.com/jenkinsci/workflow-api-plugin/pull/82 -->
         <powermock.version>1.7.1</powermock.version>
     </properties>
     <name>Pipeline Logging over CloudWatch Plugin</name>

@@ -31,9 +31,14 @@ import hudson.model.BuildListener;
 import hudson.model.Queue;
 import hudson.model.Run;
 import hudson.model.TaskListener;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import org.jenkinsci.plugins.workflow.flow.FlowExecutionOwner;
 import org.jenkinsci.plugins.workflow.graph.FlowNode;
 import org.jenkinsci.plugins.workflow.log.BrokenLogStorage;
@@ -50,6 +55,8 @@ public final class PipelineBridge implements LogStorageFactory {
         // Make sure JENKINS-52165 is enabled, or performance will be awful for remote shell steps.
         System.setProperty("org.jenkinsci.plugins.workflow.steps.durable_task.DurableTaskStep.USE_WATCHING", "true");
     }
+
+    private static final Logger LOGGER = Logger.getLogger(PipelineBridge.class.getName());
 
     private final Map<String, TimestampTracker> timestampTrackers = new ConcurrentHashMap<>();
     private final Map<String, LogStorageImpl> impls = new ConcurrentHashMap<>();
@@ -124,6 +131,29 @@ public final class PipelineBridge implements LogStorageFactory {
             } catch (Exception x) {
                 return new BrokenLogStorage(x).stepLog(node, complete);
             }
+        }
+
+        @Deprecated
+        @Override
+        public File getLogFile(FlowExecutionOwner.Executable build, boolean complete) {
+            AnnotatedLargeText<FlowExecutionOwner.Executable> logText = overallLog(build, complete);
+            // Not creating a temp file since it would be too expensive to have multiples:
+            File f = new File(((Run) build).getRootDir(), "log");
+            f.deleteOnExit();
+            try (OutputStream os = new FileOutputStream(f)) {
+                // Similar to Run#writeWholeLogTo but terminates even if !complete:
+                long pos = 0;
+                while (true) {
+                    long pos2 = logText.writeRawLogTo(pos, os);
+                    if (pos2 <= pos) {
+                        break;
+                    }
+                    pos = pos2;
+                }
+            } catch (Exception x) {
+                LOGGER.log(Level.WARNING, null, x);
+            }
+            return f;
         }
 
         private TimestampTracker timestampTracker() {
