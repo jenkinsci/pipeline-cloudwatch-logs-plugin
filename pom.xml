@@ -50,7 +50,7 @@
         <dependency>
             <groupId>io.jenkins.plugins</groupId>
             <artifactId>aws-global-configuration</artifactId>
-            <version>1.1-rc26.f4d6db33a2b8</version> <!-- TODO https://github.com/jenkinsci/aws-global-configuration-plugin/pull/6 -->
+            <version>1.1</version>
         </dependency>
         <dependency>
             <groupId>org.jenkins-ci.plugins.workflow</groupId>
