@@ -65,7 +65,6 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import javax.annotation.CheckForNull;
@@ -179,7 +178,7 @@ abstract class LogStreamState {
             }
         }
 
-        Auth authenticate(@CheckForNull AtomicReference<String> validation) throws IOException {
+        Auth authenticate() throws IOException {
             AWSSecurityTokenServiceClientBuilder builder = AWSSecurityTokenServiceClientBuilder.standard();
             CredentialsAwsGlobalConfiguration credentialsConfig = CredentialsAwsGlobalConfiguration.get();
             String region = credentialsConfig.getRegion();
@@ -203,7 +202,6 @@ abstract class LogStreamState {
                     }
                 }
             }
-            Auth auth;
             if (masterCredentials instanceof AWSSessionCredentials) {
                 // otherwise would just throw AWSSecurityTokenServiceException: Cannot call GetFederationToken with session credentials
                 String role = null;
@@ -211,27 +209,15 @@ abstract class LogStreamState {
                     role = Util.fixEmpty(((AWSCredentialsImpl) jenkinsCredentials).getIamRoleArn());
                 }
                 if (role != null) {
-                    auth = assumeRole(role, region, agentLogStreamName);
-                    LOGGER.log(Level.FINE, "AssumeRole succeeded; using {0}", auth.accessKeyId);
+                    return assumeRole(role, region, agentLogStreamName);
                 } else {
-                    auth = new Auth((AWSSessionCredentials) masterCredentials, region, agentLogStreamName);
-                    if (validation != null) {
-                        validation.set("Giving up on limiting session credentials to a policy; using " + auth.accessKeyId + " as is");
-                    }
+                    return new Auth((AWSSessionCredentials) masterCredentials, region, agentLogStreamName);
                 }
             } else if (masterCredentials == null) {
-                auth = new Auth(region, agentLogStreamName);
-                if (validation != null) {
-                    validation.set("No AWS credentials to be found, giving up on limiting to a policy");
-                }
+                return new Auth(region, agentLogStreamName);
             } else {
-                auth = getFederationToken(builder, region, agentLogStreamName);
-                LOGGER.log(Level.FINE, "GetFederationToken succeeded; using {0}", auth.accessKeyId);
+                return getFederationToken(builder, region, agentLogStreamName);
             }
-            if (validation == null) {
-                create(agentLogStreamName);
-            }
-            return auth;
         }
 
         /**
@@ -243,21 +229,25 @@ abstract class LogStreamState {
             if (region != null) {
                 builder = builder.withRegion(region);
             }
-            return new Auth(builder.build().assumeRole(new AssumeRoleRequest().
+            Auth auth = new Auth(builder.build().assumeRole(new AssumeRoleRequest().
                     withRoleArn(role).
                     withRoleSessionName("CloudWatchSender"). // TODO does this need to be unique?
                     withPolicy(policy(agentLogStreamName))).
                 getCredentials(), region, agentLogStreamName);
+            LOGGER.log(Level.FINE, "AssumeRole succeeded; using {0}", auth.accessKeyId);
+            return auth;
         }
 
         /**
          * Creates restricted session credentials for an agent using {@code GetFederationToken}.
          */
         private Auth getFederationToken(AWSSecurityTokenServiceClientBuilder builder, String region, String agentLogStreamName) {
-            return new Auth(builder.build().getFederationToken(new GetFederationTokenRequest().
+            Auth auth = new Auth(builder.build().getFederationToken(new GetFederationTokenRequest().
                     withName("CloudWatchSender"). // TODO as above?
                     withPolicy(policy(agentLogStreamName))).
                 getCredentials(), region, agentLogStreamName);
+            LOGGER.log(Level.FINE, "GetFederationToken succeeded; using {0}", auth.accessKeyId);
+            return auth;
         }
 
         /** @see <a href="https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/iam-access-control-overview-cwl.html">Reference</a> */
@@ -277,9 +267,14 @@ abstract class LogStreamState {
     }
     
     static @CheckForNull String validate(@Nonnull String logGroupName) throws IOException {
-        AtomicReference<String> message = new AtomicReference<>();
-        ((MasterState) onMaster(logGroupName, "__example__")).authenticate(message);
-        return message.get();
+        Auth auth = ((MasterState) onMaster(logGroupName, "__example__")).authenticate();
+        if (auth.restricted) {
+            return null;
+        } else if (auth.accessKeyId != null) {
+            return "Giving up on limiting session credentials to a policy; using " + auth.accessKeyId + " as is";
+        } else {
+            return "No AWS credentials to be found, giving up on limiting to a policy";
+        }
     }
 
     private static abstract class SecuredCallable<V, T extends Throwable> extends SlaveToMasterCallable<V, T> {
@@ -317,7 +312,9 @@ abstract class LogStreamState {
         }
 
         @Override protected Auth doCall(MasterState state) throws IOException {
-            return state.authenticate(null);
+            Auth auth = state.authenticate();
+            state.create(auth.logStreamName);
+            return auth;
         }
 
     }
@@ -528,21 +525,24 @@ abstract class LogStreamState {
         // TODO also track expiration time, and automatically shut down the client so that a new call to master must be made
         final @CheckForNull String region;
         final @Nonnull String logStreamName;
+        /** Whether {@link MasterState#policy} was applied. */
+        transient final boolean restricted;
         Auth(Credentials credentials, String region, String logStreamName) {
-            this(credentials.getAccessKeyId(), credentials.getSecretAccessKey(), credentials.getSessionToken(), region, logStreamName);
+            this(credentials.getAccessKeyId(), credentials.getSecretAccessKey(), credentials.getSessionToken(), region, logStreamName, true);
         }
         Auth(AWSSessionCredentials credentials, String region, String logStreamName) {
-            this(credentials.getAWSAccessKeyId(), credentials.getAWSSecretKey(), credentials.getSessionToken(), region, logStreamName);
+            this(credentials.getAWSAccessKeyId(), credentials.getAWSSecretKey(), credentials.getSessionToken(), region, logStreamName, false);
         }
         Auth(String region, String logStreamName) {
-            this(null, null, null, region, logStreamName);
+            this(null, null, null, region, logStreamName, false);
         }
-        private Auth(String accessKeyId, String secretAccessKey, String sessionToken, String region, String logStreamName) {
+        private Auth(String accessKeyId, String secretAccessKey, String sessionToken, String region, String logStreamName, boolean restricted) {
             this.accessKeyId = accessKeyId;
             this.secretAccessKey = secretAccessKey;
             this.sessionToken = sessionToken;
             this.region = region;
             this.logStreamName = logStreamName;
+            this.restricted = restricted;
         }
         AWSLogs client() {
             AWSLogsClientBuilder builder;
