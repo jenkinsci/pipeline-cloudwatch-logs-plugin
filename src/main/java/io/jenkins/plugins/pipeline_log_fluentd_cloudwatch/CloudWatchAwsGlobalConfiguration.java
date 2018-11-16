@@ -142,16 +142,16 @@ public class CloudWatchAwsGlobalConfiguration extends AbstractAwsGlobalConfigura
         try {
             AWSLogsClientBuilder builder = getAWSLogsClientBuilder(region, credentialsId);
             client = builder.build();
-        } catch (Throwable t) {
-            String msg = processExceptionMessage(t);
+        } catch (Exception x) {
+            String msg = processExceptionMessage(x);
             return FormValidation.error("Unable to validate credentials: " + StringUtils.abbreviate(msg, 200));
         }
 
         try {
             filter(client, logGroupName);
             // TODO should also check DescribeLogStreams, and perhaps even CreateLogStream and PutLogEvents, to ensure roles are correct
-        } catch (Throwable t) {
-            String msg = processExceptionMessage(t);
+        } catch (Exception x) {
+            String msg = processExceptionMessage(x);
             return FormValidation.error(StringUtils.abbreviate(msg, 200));
         }
         try {
@@ -159,8 +159,8 @@ public class CloudWatchAwsGlobalConfiguration extends AbstractAwsGlobalConfigura
             if (message != null) {
                 return FormValidation.warning(message);
             }
-        } catch (Throwable t) {
-            String msg = processExceptionMessage(t);
+        } catch (Exception x) {
+            String msg = processExceptionMessage(x);
             return FormValidation.error("Unable to simulate policy restriction: " + StringUtils.abbreviate(msg, 200));
         }
         return FormValidation.ok("success");
