@@ -45,10 +45,8 @@ import com.amazonaws.services.logs.model.PutLogEventsResult;
 import com.amazonaws.services.logs.model.RejectedLogEventsInfo;
 import com.amazonaws.services.securitytoken.AWSSecurityTokenServiceClientBuilder;
 import com.amazonaws.services.securitytoken.model.AssumeRoleRequest;
-import com.amazonaws.services.securitytoken.model.AssumeRoleResult;
 import com.amazonaws.services.securitytoken.model.Credentials;
 import com.amazonaws.services.securitytoken.model.GetFederationTokenRequest;
-import com.amazonaws.services.securitytoken.model.GetFederationTokenResult;
 import com.cloudbees.jenkins.plugins.awscredentials.AWSCredentialsImpl;
 import com.cloudbees.jenkins.plugins.awscredentials.AmazonWebServicesCredentials;
 import hudson.ExtensionList;
@@ -195,7 +193,6 @@ abstract class LogStreamState {
             }
             AWSCredentialsProvider credentialsProvider = builder.getCredentials();
             AWSCredentials masterCredentials = credentialsProvider != null ? credentialsProvider.getCredentials() : null;
-            String remotedAccessKeyId, remotedSecretAccessKey, remotedSessionToken;
             String agentLogStreamName;
             synchronized (agentLogStreamNames) {
                 for (int i = 1; ; i++) {
@@ -206,6 +203,7 @@ abstract class LogStreamState {
                     }
                 }
             }
+            Auth auth;
             if (masterCredentials instanceof AWSSessionCredentials) {
                 // otherwise would just throw AWSSecurityTokenServiceException: Cannot call GetFederationToken with session credentials
                 String role = null;
@@ -213,49 +211,53 @@ abstract class LogStreamState {
                     role = Util.fixEmpty(((AWSCredentialsImpl) jenkinsCredentials).getIamRoleArn());
                 }
                 if (role != null) {
-                    // TODO would be cleaner if AmazonWebServicesCredentials had a getCredentials overload taking a policy
-                    builder = AWSSecurityTokenServiceClientBuilder.standard();
-                    if (region != null) {
-                        builder = builder.withRegion(region);
-                    }
-                    AssumeRoleResult r = builder.build().assumeRole(new AssumeRoleRequest().
-                            withRoleArn(role).
-                            withRoleSessionName("CloudWatchSender"). // TODO does this need to be unique?
-                            withPolicy(policy(agentLogStreamName)));
-                    Credentials credentials = r.getCredentials();
-                    remotedAccessKeyId = credentials.getAccessKeyId();
-                    remotedSecretAccessKey = credentials.getSecretAccessKey();
-                    remotedSessionToken = credentials.getSessionToken();
-                    LOGGER.log(Level.FINE, "AssumeRole succeeded; using {0}", remotedAccessKeyId);
+                    auth = assumeRole(role, region, agentLogStreamName);
+                    LOGGER.log(Level.FINE, "AssumeRole succeeded; using {0}", auth.accessKeyId);
                 } else {
-                    remotedAccessKeyId = masterCredentials.getAWSAccessKeyId();
-                    remotedSecretAccessKey = masterCredentials.getAWSSecretKey();
-                    remotedSessionToken = ((AWSSessionCredentials) masterCredentials).getSessionToken();
+                    auth = new Auth((AWSSessionCredentials) masterCredentials, region, agentLogStreamName);
                     if (validation != null) {
-                        validation.set("Giving up on limiting session credentials to a policy; using " + remotedAccessKeyId + " as is");
+                        validation.set("Giving up on limiting session credentials to a policy; using " + auth.accessKeyId + " as is");
                     }
                 }
             } else if (masterCredentials == null) {
-                remotedAccessKeyId = null;
-                remotedSecretAccessKey = null;
-                remotedSessionToken = null;
+                auth = new Auth(region, agentLogStreamName);
                 if (validation != null) {
                     validation.set("No AWS credentials to be found, giving up on limiting to a policy");
                 }
             } else {
-                GetFederationTokenResult r = builder.build().getFederationToken(new GetFederationTokenRequest().
-                        withName("CloudWatchSender"). // TODO as above?
-                        withPolicy(policy(agentLogStreamName)));
-                Credentials credentials = r.getCredentials();
-                remotedAccessKeyId = credentials.getAccessKeyId();
-                remotedSecretAccessKey = credentials.getSecretAccessKey();
-                remotedSessionToken = credentials.getSessionToken();
-                LOGGER.log(Level.FINE, "GetFederationToken succeeded; using {0}", remotedAccessKeyId);
+                auth = getFederationToken(builder, region, agentLogStreamName);
+                LOGGER.log(Level.FINE, "GetFederationToken succeeded; using {0}", auth.accessKeyId);
             }
             if (validation == null) {
                 create(agentLogStreamName);
             }
-            return new Auth(remotedAccessKeyId, remotedSecretAccessKey, remotedSessionToken, region, agentLogStreamName);
+            return auth;
+        }
+
+        /**
+         * Creates restricted session credentials for an agent using {@code AssumeRole}.
+         */
+        private Auth assumeRole(String role, String region, String agentLogStreamName) {
+            // TODO would be cleaner if AmazonWebServicesCredentials had a getCredentials overload taking a policy
+            AWSSecurityTokenServiceClientBuilder builder = AWSSecurityTokenServiceClientBuilder.standard();
+            if (region != null) {
+                builder = builder.withRegion(region);
+            }
+            return new Auth(builder.build().assumeRole(new AssumeRoleRequest().
+                    withRoleArn(role).
+                    withRoleSessionName("CloudWatchSender"). // TODO does this need to be unique?
+                    withPolicy(policy(agentLogStreamName))).
+                getCredentials(), region, agentLogStreamName);
+        }
+
+        /**
+         * Creates restricted session credentials for an agent using {@code GetFederationToken}.
+         */
+        private Auth getFederationToken(AWSSecurityTokenServiceClientBuilder builder, String region, String agentLogStreamName) {
+            return new Auth(builder.build().getFederationToken(new GetFederationTokenRequest().
+                    withName("CloudWatchSender"). // TODO as above?
+                    withPolicy(policy(agentLogStreamName))).
+                getCredentials(), region, agentLogStreamName);
         }
 
         /** @see <a href="https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/iam-access-control-overview-cwl.html">Reference</a> */
@@ -520,13 +522,22 @@ abstract class LogStreamState {
      */
     private static final class Auth implements Serializable {
         private static final long serialVersionUID = 1;
-        final @Nullable String accessKeyId; // TODO check actual nullability for these
+        final @CheckForNull String accessKeyId;
         final @Nullable String secretAccessKey;
         final @Nullable String sessionToken;
         // TODO also track expiration time, and automatically shut down the client so that a new call to master must be made
-        final @Nullable String region;
+        final @CheckForNull String region;
         final @Nonnull String logStreamName;
-        Auth(String accessKeyId, String secretAccessKey, String sessionToken, String region, String logStreamName) {
+        Auth(Credentials credentials, String region, String logStreamName) {
+            this(credentials.getAccessKeyId(), credentials.getSecretAccessKey(), credentials.getSessionToken(), region, logStreamName);
+        }
+        Auth(AWSSessionCredentials credentials, String region, String logStreamName) {
+            this(credentials.getAWSAccessKeyId(), credentials.getAWSSecretKey(), credentials.getSessionToken(), region, logStreamName);
+        }
+        Auth(String region, String logStreamName) {
+            this(null, null, null, region, logStreamName);
+        }
+        private Auth(String accessKeyId, String secretAccessKey, String sessionToken, String region, String logStreamName) {
             this.accessKeyId = accessKeyId;
             this.secretAccessKey = secretAccessKey;
             this.sessionToken = sessionToken;
