@@ -386,7 +386,7 @@ abstract class LogStreamState {
                 client.shutdown();
                 client = null;
                 try {
-                    channel.call(new NotifyShutdown(logGroupName, logStreamNameBase, token, logStreamName));
+                    channel.callAsync(new NotifyShutdown(logGroupName, logStreamNameBase, token, logStreamName));
                 } catch (Exception x) {
                     LOGGER.log(Level.WARNING, null, x);
                 }
