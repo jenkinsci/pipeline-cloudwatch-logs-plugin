@@ -244,7 +244,7 @@ class CloudWatchRetriever {
             }
             token = r.getNextToken();
         } while (token != null);
-        LOGGER.finest("filtering based on " + logStreamNames);
+        LOGGER.log(Level.FINEST, "filtering based on {0}", logStreamNames);
         return new FilterLogEventsRequest().
             withLogGroupName(logGroupName).
             withInterleaved(true).
