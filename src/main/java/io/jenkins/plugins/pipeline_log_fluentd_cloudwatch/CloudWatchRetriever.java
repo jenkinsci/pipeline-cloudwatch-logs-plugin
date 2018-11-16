@@ -75,8 +75,8 @@ class CloudWatchRetriever {
     private final String logGroupName;
     private final AWSLogs client;
 
-    CloudWatchRetriever(String logStreamName, String buildId, TimestampTracker timestampTracker) throws IOException {
-        this.logStreamNameBase = logStreamName;
+    CloudWatchRetriever(String logStreamNameBase, String buildId, TimestampTracker timestampTracker) throws IOException {
+        this.logStreamNameBase = logStreamNameBase;
         this.buildId = buildId;
         this.timestampTracker = timestampTracker;
         CloudWatchAwsGlobalConfiguration configuration = ExtensionList.lookupSingleton(CloudWatchAwsGlobalConfiguration.class);
