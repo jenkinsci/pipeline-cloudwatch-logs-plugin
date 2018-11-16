@@ -49,6 +49,7 @@ import com.amazonaws.services.securitytoken.model.Credentials;
 import com.amazonaws.services.securitytoken.model.GetFederationTokenRequest;
 import com.cloudbees.jenkins.plugins.awscredentials.AWSCredentialsImpl;
 import com.cloudbees.jenkins.plugins.awscredentials.AmazonWebServicesCredentials;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import hudson.ExtensionList;
 import hudson.Util;
 import hudson.remoting.Channel;
@@ -526,6 +527,7 @@ abstract class LogStreamState {
         final @CheckForNull String region;
         final @Nonnull String logStreamName;
         /** Whether {@link MasterState#policy} was applied. */
+        @SuppressFBWarnings(value = "SE_TRANSIENT_FIELD_NOT_RESTORED", justification = "only used in validation")
         transient final boolean restricted;
         Auth(Credentials credentials, String region, String logStreamName) {
             this(credentials.getAccessKeyId(), credentials.getSecretAccessKey(), credentials.getSessionToken(), region, logStreamName, true);
