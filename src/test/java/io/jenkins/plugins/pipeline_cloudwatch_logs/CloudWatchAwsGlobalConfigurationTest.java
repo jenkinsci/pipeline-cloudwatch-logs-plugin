@@ -22,7 +22,7 @@
  * THE SOFTWARE.
  */
 
-package io.jenkins.plugins.pipeline_log_fluentd_cloudwatch;
+package io.jenkins.plugins.pipeline_cloudwatch_logs;
 
 import static org.junit.Assert.*;
 import static org.mockito.ArgumentMatchers.*;

@@ -1,7 +1,7 @@
 /*
  * The MIT License
  *
- * Copyright (c) 2018, CloudBees, Inc.
+ * Copyright 2018 CloudBees, Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -22,17 +22,20 @@
  * THE SOFTWARE.
  */
 
-package io.jenkins.plugins.pipeline_log_fluentd_cloudwatch;
+package io.jenkins.plugins.pipeline_cloudwatch_logs;
 
-import com.amazonaws.services.logs.AWSLogs;
+import org.junit.Test;
+import static org.junit.Assert.*;
 
-public class CloudWatchAwsGlobalConfigurationStub extends CloudWatchAwsGlobalConfiguration {
+public class TimestampTrackerTest {
 
-    public CloudWatchAwsGlobalConfigurationStub() {
-        super(true);
+    @Test public void monoticallyIncrease() throws Exception {
+        assertEquals(1234, TimestampTracker.monoticallyIncrease(0, 1234));
+        assertEquals(1235, TimestampTracker.monoticallyIncrease(1234, 1234));
+        assertEquals(1236, TimestampTracker.monoticallyIncrease(1235, 1234));
+        assertEquals(3000, TimestampTracker.monoticallyIncrease(3000, 1234));
     }
 
-    protected void filter(AWSLogs client, String logGroupName2) {
-        // noop
-    }
+    // TODO test for checkCompletion
+
 }
