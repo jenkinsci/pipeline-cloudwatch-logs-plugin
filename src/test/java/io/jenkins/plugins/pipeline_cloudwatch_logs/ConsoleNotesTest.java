@@ -22,7 +22,7 @@
  * THE SOFTWARE.
  */
 
-package io.jenkins.plugins.pipeline_log_fluentd_cloudwatch;
+package io.jenkins.plugins.pipeline_cloudwatch_logs;
 
 import hudson.console.ConsoleNote;
 import java.io.StringWriter;
