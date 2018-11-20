@@ -82,3 +82,9 @@ Scalability to large numbers of builds, gigantic build logs, or extremely long l
 **Validate configuration** does not check availability of all master permissions.
 
 Job names involving unusual characters may not work.
+
+# Changelog
+
+## 0.1 (2018-11-20)
+
+Initial release. Treat as alpha quality.
