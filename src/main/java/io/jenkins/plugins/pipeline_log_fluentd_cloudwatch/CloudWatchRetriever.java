@@ -44,9 +44,12 @@ import org.jenkinsci.plugins.workflow.log.LogStorage;
 import org.kohsuke.stapler.framework.io.ByteBuffer;
 
 import com.amazonaws.services.logs.AWSLogs;
+import com.amazonaws.services.logs.model.DescribeLogStreamsRequest;
+import com.amazonaws.services.logs.model.DescribeLogStreamsResult;
 import com.amazonaws.services.logs.model.FilterLogEventsRequest;
 import com.amazonaws.services.logs.model.FilterLogEventsResult;
 import com.amazonaws.services.logs.model.FilteredLogEvent;
+import com.amazonaws.services.logs.model.LogStream;
 import com.amazonaws.services.logs.model.ResourceNotFoundException;
 
 import hudson.AbortException;
@@ -55,6 +58,7 @@ import hudson.Main;
 import hudson.console.AnnotatedLargeText;
 import hudson.console.ConsoleAnnotationOutputStream;
 import java.io.InputStream;
+import java.net.URLEncoder;
 import java.util.concurrent.atomic.AtomicInteger;
 import net.sf.json.JSONObject;
 
@@ -65,14 +69,14 @@ class CloudWatchRetriever {
 
     private static final Logger LOGGER = Logger.getLogger(CloudWatchRetriever.class.getName());
 
-    private final String logStreamName;
+    private final String logStreamNameBase;
     private final String buildId;
     private final TimestampTracker timestampTracker;
     private final String logGroupName;
     private final AWSLogs client;
 
-    CloudWatchRetriever(String logStreamName, String buildId, TimestampTracker timestampTracker) throws IOException {
-        this.logStreamName = logStreamName;
+    CloudWatchRetriever(String logStreamNameBase, String buildId, TimestampTracker timestampTracker) throws IOException {
+        this.logStreamNameBase = logStreamNameBase;
         this.buildId = buildId;
         this.timestampTracker = timestampTracker;
         CloudWatchAwsGlobalConfiguration configuration = ExtensionList.lookupSingleton(CloudWatchAwsGlobalConfiguration.class);
@@ -114,9 +118,12 @@ class CloudWatchRetriever {
 
         @Override
         public long writeHtmlTo(long start, final Writer w) throws IOException {
-            if (start == 0 && /* would mess up PipelineBridgeTest */ !Main.isUnitTest) {
-                String url = "https://console.aws.amazon.com/cloudwatch/home#logEventViewer:group=" + logGroupName + ";stream=" + logStreamName + ";filter=%257B%2524.build%2520%253D%2520%2522" + buildId + "%2522%257D";
-                w.write("[view in <a href=\"" + url + "\" target=\"_blank\">AWS Console</a> if authorized]\n");
+            if (start == 0 && !Main.isUnitTest) { // would mess up PipelineBridgeTest
+                // TODO will not display agent-generated messages; could use DescribeLogStreams to generate all links but there might be a lot
+                // TODO add a DisplayURLProvider (off by default) linking here for affected builds
+                String url = "https://console.aws.amazon.com/cloudwatch/home#logEventViewer:group=" + logGroupName + ";stream=" + logStreamNameBase + "@master;filter=" +
+                    URLEncoder.encode(URLEncoder.encode("{$.build = \"" + buildId + "\"}", "UTF-8").replace("+", "%20"), "UTF-8");
+                w.write("[view in <a href=\"" + url + "\" target=\"_blank\">AWS Console</a>, if authorized, plus related streams for agent output]\n");
                 // Should not affect the return value at all: Blue Ocean does not use writeHtmlTo, and regular console is not counting bytes.
             }
             AtomicInteger line = new AtomicInteger();
@@ -174,19 +181,18 @@ class CloudWatchRetriever {
      */
     private boolean couldBeComplete() {
         return timestampTracker.checkCompletion(timestamp -> {
-            // Do not use withStartTime(timestamp) as the fluentd bridge currently truncates milliseconds (see below).
             List<FilteredLogEvent> events;
             try {
-                events = client.filterLogEvents(createFilter().withFilterPattern("{$.timestamp = " + timestamp + "}").withLimit(1)).getEvents();
+                events = client.filterLogEvents(createFilter().withLimit(1).withStartTime(timestamp)).getEvents();
             } catch (ResourceNotFoundException e) {
-                LOGGER.log(Level.FINE, "{0} or its stream {1} do not exist: {2}", new Object[] {logGroupName, logStreamName, e.getMessage()});
+                LOGGER.log(Level.FINE, "{0} or its stream {1}@* do not exist: {2}", new Object[] {logGroupName, logStreamNameBase, e.getMessage()});
                 return false;
             }
             if (events.isEmpty()) {
-                LOGGER.log(Level.FINE, "{0} contains no event in {1} with timestamp={2}", new Object[] {logGroupName, logStreamName, timestamp});
+                LOGGER.log(Level.FINE, "{0} contains no event in {1}@* with timestamp={2}", new Object[] {logGroupName, logStreamNameBase, timestamp});
                 return false;
             } else {
-                LOGGER.log(Level.FINER, "{0} does contain an event in {1} with timestamp={2}", new Object[] {logGroupName, logStreamName, timestamp});
+                LOGGER.log(Level.FINER, "{0} does contain an event in {1}@* with timestamp={2}", new Object[] {logGroupName, logStreamNameBase, timestamp});
                 return true;
             }
         });
@@ -206,13 +212,12 @@ class CloudWatchRetriever {
                     try {
                         result = client.filterLogEvents(createFilter().withFilterPattern("{$.build = \"" + buildId + (nodeId == null ? "" : "\" && $.node = \"" + nodeId) + "\"}").withNextToken(token));
                     } catch (ResourceNotFoundException e) {
-                        throw new IOException(String.format("Unable to find log group \"%s\" or log stream \"%s\"", logGroupName, logStreamName), e);
+                        throw new IOException(String.format("Unable to find log group \"%s\" or log stream \"%s@*\"", logGroupName, logStreamNameBase), e);
                     }
                     token = result.getNextToken();
                     List<FilteredLogEvent> events = result.getEvents();
-                    LOGGER.log(Level.FINER, "event count {0} from group={1} stream={2} buildId={3} nodeId={4}", new Object[] {events.size(), logGroupName, logStreamName, buildId, nodeId});
-                    // TODO pending https://github.com/fluent-plugins-nursery/fluent-plugin-cloudwatch-logs/pull/108:
-                    events.sort(Comparator.comparingLong(e -> JSONObject.fromObject(e.getMessage()).optLong("timestamp", e.getTimestamp())));
+                    LOGGER.log(Level.FINER, "event count {0} from group={1} stream={2}@* buildId={3} nodeId={4}", new Object[] {events.size(), logGroupName, logStreamNameBase, buildId, nodeId});
+                    events.sort(Comparator.comparing(FilteredLogEvent::getTimestamp)); // TODO is this necessary or is it already sorted?
                     for (FilteredLogEvent event : events) {
                         // TODO perhaps translate event.timestamp to a TimestampNote
                         JSONObject json = JSONObject.fromObject(event.getMessage());
@@ -230,9 +235,20 @@ class CloudWatchRetriever {
     }
 
     private FilterLogEventsRequest createFilter() {
+        List<String> logStreamNames = new ArrayList<>();
+        String token = null;
+        do {
+            DescribeLogStreamsResult r = client.describeLogStreams(new DescribeLogStreamsRequest(logGroupName).withLogStreamNamePrefix(logStreamNameBase + "@").withNextToken(token));
+            for (LogStream ls : r.getLogStreams()) {
+                logStreamNames.add(ls.getLogStreamName());
+            }
+            token = r.getNextToken();
+        } while (token != null);
+        LOGGER.log(Level.FINEST, "filtering based on {0}", logStreamNames);
         return new FilterLogEventsRequest().
             withLogGroupName(logGroupName).
-            withLogStreamNames(logStreamName);
+            withInterleaved(true).
+            withLogStreamNames(logStreamNames);
     }
 
 }

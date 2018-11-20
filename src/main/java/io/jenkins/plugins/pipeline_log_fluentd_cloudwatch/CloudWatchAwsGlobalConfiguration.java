@@ -107,7 +107,7 @@ public class CloudWatchAwsGlobalConfiguration extends AbstractAwsGlobalConfigura
      * @throws IOException
      */
     @Restricted(NoExternalUse.class)
-    AWSLogsClientBuilder getAWSLogsClientBuilder(String region, String credentialsId) throws IOException {
+    static AWSLogsClientBuilder getAWSLogsClientBuilder(String region, String credentialsId) throws IOException {
         AWSLogsClientBuilder builder = AWSLogsClientBuilder.standard();
         if (region != null) {
             builder = builder.withRegion(region);
@@ -131,37 +131,46 @@ public class CloudWatchAwsGlobalConfiguration extends AbstractAwsGlobalConfigura
 
     @RequirePOST
     public FormValidation doValidate(@QueryParameter String logGroupName, @QueryParameter String region,
-            @QueryParameter String credentialsId) throws IOException {
+            @QueryParameter String credentialsId) {
         Jenkins.get().checkPermission(Jenkins.ADMINISTER);
         return validate(logGroupName, Util.fixEmptyAndTrim(region), Util.fixEmptyAndTrim(credentialsId));
     }
 
     @Restricted(NoExternalUse.class)
-    FormValidation validate(String logGroupName, String region, String credentialsId) throws IOException {
-        FormValidation ret = FormValidation.ok("success");
+    FormValidation validate(String logGroupName, String region, String credentialsId) {
         AWSLogs client;
         try {
             AWSLogsClientBuilder builder = getAWSLogsClientBuilder(region, credentialsId);
             client = builder.build();
-        } catch (Throwable t) {
-            String msg = processExceptionMessage(t);
-            ret = FormValidation.error("Unable to validate credentials: " + StringUtils.abbreviate(msg, 200));
-            return ret;
+        } catch (Exception x) {
+            String msg = processExceptionMessage(x);
+            return FormValidation.error("Unable to validate credentials: " + StringUtils.abbreviate(msg, 200));
         }
 
         try {
             filter(client, logGroupName);
-        } catch (Throwable t) {
-            String msg = processExceptionMessage(t);
-            ret = FormValidation.error(StringUtils.abbreviate(msg, 200));
+            // TODO should also check DescribeLogStreams, and perhaps even CreateLogStream and PutLogEvents, to ensure roles are correct
+        } catch (Exception x) {
+            String msg = processExceptionMessage(x);
+            return FormValidation.error(StringUtils.abbreviate(msg, 200));
         }
-        return ret;
+        try {
+            String message = LogStreamState.validate(logGroupName);
+            if (message != null) {
+                return FormValidation.warning(message);
+            }
+        } catch (Exception x) {
+            String msg = processExceptionMessage(x);
+            return FormValidation.error("Unable to simulate policy restriction: " + StringUtils.abbreviate(msg, 200));
+        }
+        return FormValidation.ok("success");
     }
 
     @Restricted(NoExternalUse.class)
     protected void filter(AWSLogs client, String logGroupName) {
         FilterLogEventsRequest request = new FilterLogEventsRequest();
         request.setLogGroupName(logGroupName);
+        // TODO this returns a ton of data, when all we care about is that the request does not fail; filter it down to just a few results
         client.filterLogEvents(request);
     }
 
