@@ -176,6 +176,16 @@ Verify that the rest of the log looks like the normal Jenkins “classic” log 
 
 You can also install the **Blue Ocean** plugin from the update center and check log display there.
 
+# Alternatives
+
+The [AWS CloudWatch Logs Publisher plugin](https://plugins.jenkins.io/aws-cloudwatch-logs-publisher)
+assumes logs are still stored in `$JENKINS_HOME`,
+and then just offers a Pipeline step (which your `Jenkinsfile` must call)
+which uploads the log text up to that point to CloudWatch Logs
+(any output after the step is called will not be uploaded).
+Logs are still displayed from the traditional location,
+and log text is still streamed from agents to the master via the Remoting channel.
+
 # Changelog
 
 ## 0.1 (2018-11-20)
