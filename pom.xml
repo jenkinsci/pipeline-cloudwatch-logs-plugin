@@ -17,7 +17,7 @@
         <jenkins.version>2.138.2</jenkins.version>
         <java.level>8</java.level>
         <useBeta>true</useBeta>
-        <workflow-api-plugin.version>2.32</workflow-api-plugin.version>
+        <workflow-api-plugin.version>2.33</workflow-api-plugin.version>
         <powermock.version>1.7.1</powermock.version>
     </properties>
     <name>Pipeline Logging over CloudWatch Plugin</name>
