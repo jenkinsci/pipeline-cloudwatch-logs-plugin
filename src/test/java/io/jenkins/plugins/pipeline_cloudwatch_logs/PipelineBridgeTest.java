@@ -70,7 +70,7 @@ public class PipelineBridgeTest extends LogStorageTestBase {
         return PipelineBridge.get().forIDs(LOG_STREAM_NAME, id);
     }
 
-    @Override protected Map<String, Level> slaveLoggers() {
+    @Override protected Map<String, Level> agentLoggers() {
         return Collections.singletonMap(PipelineBridge.class.getPackage().getName(), Level.FINER);
     }
 
