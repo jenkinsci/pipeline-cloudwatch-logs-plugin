@@ -18,7 +18,7 @@
         <java.level>8</java.level>
         <useBeta>true</useBeta>
         <workflow-api-plugin.version>2.34-rc886.7984f4ee2ed7</workflow-api-plugin.version> <!-- TODO https://github.com/jenkinsci/workflow-api-plugin/pull/88 -->
-        <structs-plugin.version>1.18</structs-plugin.version>
+        <structs-plugin.version>1.19</structs-plugin.version>
     </properties>
     <name>Pipeline Logging over CloudWatch Plugin</name>
     <licenses>
