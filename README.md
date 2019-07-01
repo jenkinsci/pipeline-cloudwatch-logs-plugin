@@ -186,6 +186,11 @@ which uploads the log text up to that point to CloudWatch Logs
 Logs are still displayed from the traditional location,
 and log text is still streamed from agents to the master via the Remoting channel.
 
+# Other materials
+
+* [Scaling Network Connections from the Jenkins Master](https://sched.co/F9NP) and [video](https://youtu.be/h7JK6Ak3cJc) (2018-09-18)
+* [Cloud Native SIG subsection](https://jenkins.io/sigs/cloud-native/pluggable-storage/#build-log-storage) and [2018-08-16 status meeting](https://jenkins.io/sigs/cloud-native/#2018-08-16-status-meeting)
+
 # Changelog
 
 ## 0.1 (2018-11-20)
