@@ -172,6 +172,12 @@ and sometimes also `node` and/or `annotations` fields.
 `node` will match the IDs used in the **Pipeline Steps** display.
 `annotations` is used for hyperlinks, build structure metadata, and more.
 
+You can also view the build log using the AWS CLI:
+
+```sh
+aws logs filter-log-events --log-group-name $CLOUDWATCH_LOG_GROUP_NAME --log-stream-name-prefix "${JOB_FULL_NAME}@" | jq -r '.events[].message | fromjson | .message'
+```
+
 Verify that the rest of the log looks like the normal Jenkins “classic” log UI for builds in progress.
 
 You can also install the **Blue Ocean** plugin from the update center and check log display there.
