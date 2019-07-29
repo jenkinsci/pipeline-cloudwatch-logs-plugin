@@ -49,7 +49,7 @@ public class PipelineBridgeTest extends LogStorageTestBase {
     @Rule public LoggerRule logging = new LoggerRule().recordPackage(PipelineBridge.class, Level.FINER);
     private String id;
 
-    @Before public void setUp() throws Exception {
+    static void globalConfiguration() throws Exception {
         String logGroupName = System.getenv("CLOUDWATCH_LOG_GROUP_NAME");
         assumeThat("must define $CLOUDWATCH_LOG_GROUP_NAME", logGroupName, notNullValue());
         String role = System.getenv("AWS_ROLE");
@@ -63,6 +63,10 @@ public class PipelineBridgeTest extends LogStorageTestBase {
         FormValidation logGroupNameValidation = configuration.validate(logGroupName, null, credentialsId);
         assumeThat(logGroupNameValidation.toString(), logGroupNameValidation.kind, is(FormValidation.Kind.OK));
         configuration.setLogGroupName(logGroupName);
+    }
+
+    @Before public void setUp() throws Exception {
+        globalConfiguration();
         id = UUID.randomUUID().toString();
     }
 
