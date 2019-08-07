@@ -83,6 +83,9 @@ Scalability to large numbers of builds, gigantic build logs, or extremely long l
 
 Job names involving unusual characters may not work.
 
+Log stream names are derived from job names,
+so if you rename a job the logs for historical builds will not be displayed.
+
 Pending [JEP-207](https://jenkins.io/jep/207), the plugin takes effect immediately upon installation,
 and there is no record in `build.xml` that logs are in CloudWatch Logs.
 Also historical builds logs using a `log` file will not be displayable.
