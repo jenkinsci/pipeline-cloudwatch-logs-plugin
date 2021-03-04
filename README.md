@@ -202,6 +202,10 @@ and log text is still streamed from agents to the master via the Remoting channe
 
 # Changelog
 
+## 0.2 and later
+
+See [GitHub Releases](https://github.com/jenkinsci/pipeline-cloudwatch-logs-plugin/releases).
+
 ## 0.1 (2018-11-20)
 
 Initial release. Treat as alpha quality.
