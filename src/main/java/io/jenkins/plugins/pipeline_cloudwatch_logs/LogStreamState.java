@@ -68,9 +68,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import javax.annotation.CheckForNull;
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
+import edu.umd.cs.findbugs.annotations.CheckForNull;
+import edu.umd.cs.findbugs.annotations.NonNull;
+import edu.umd.cs.findbugs.annotations.Nullable;
 import jenkins.security.HMACConfidentialKey;
 import jenkins.security.SlaveToMasterCallable;
 import jenkins.util.JenkinsJVM;
@@ -108,7 +108,7 @@ abstract class LogStreamState {
 
     protected final String logGroupName;
     protected final String logStreamNameBase;
-    private final @Nonnull BlockingQueue<InputLogEvent> events = new ArrayBlockingQueue<>(10_000); // https://docs.aws.amazon.com/AmazonCloudWatchLogs/latest/APIReference/API_PutLogEvents.html max batch size
+    private final @NonNull BlockingQueue<InputLogEvent> events = new ArrayBlockingQueue<>(10_000); // https://docs.aws.amazon.com/AmazonCloudWatchLogs/latest/APIReference/API_PutLogEvents.html max batch size
     private long lastOffered;
 
     private LogStreamState(String logGroupName, String logStreamNameBase) {
@@ -267,7 +267,7 @@ abstract class LogStreamState {
 
     }
     
-    static @CheckForNull String validate(@Nonnull String logGroupName) throws IOException {
+    static @CheckForNull String validate(@NonNull String logGroupName) throws IOException {
         Auth auth = ((MasterState) onMaster(logGroupName, "__example__")).authenticate();
         if (auth.restricted) {
             return null;
@@ -343,10 +343,10 @@ abstract class LogStreamState {
 
     private static final class AgentState extends LogStreamState {
 
-        private final @Nonnull String token;
+        private final @NonNull String token;
         private @CheckForNull AWSLogs client;
         private @Nullable String logStreamName;
-        private final @Nonnull Channel channel;
+        private final @NonNull Channel channel;
 
         AgentState(String logGroupName, String logStreamNameBase, String token, Channel channel) {
             super(logGroupName, logStreamNameBase);
@@ -395,11 +395,11 @@ abstract class LogStreamState {
     }
 
     /** @see MasterState#TOKENS */
-    protected abstract @Nonnull String token();
+    protected abstract @NonNull String token();
 
-    protected abstract @Nonnull AWSLogs client() throws IOException, InterruptedException;
+    protected abstract @NonNull AWSLogs client() throws IOException, InterruptedException;
 
-    protected abstract @Nonnull String logStreamName() throws IOException, InterruptedException;
+    protected abstract @NonNull String logStreamName() throws IOException, InterruptedException;
 
     protected abstract void ensureRunning() throws IOException;
 
@@ -525,7 +525,7 @@ abstract class LogStreamState {
         final @Nullable String sessionToken;
         // TODO also track expiration time, and automatically shut down the client so that a new call to master must be made
         final @CheckForNull String region;
-        final @Nonnull String logStreamName;
+        final @NonNull String logStreamName;
         /** Whether {@link MasterState#policy} was applied. */
         @SuppressFBWarnings(value = "SE_TRANSIENT_FIELD_NOT_RESTORED", justification = "only used in validation")
         transient final boolean restricted;

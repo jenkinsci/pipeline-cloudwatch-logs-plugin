@@ -1,1 +1,3 @@
-buildPlugin(platforms: ['linux'])
+buildPlugin(configurations: [
+    [platform: 'linux', jdk: 11],
+])
