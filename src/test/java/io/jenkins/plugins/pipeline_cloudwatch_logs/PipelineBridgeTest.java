@@ -70,7 +70,7 @@ public class PipelineBridgeTest extends LogStorageTestBase {
         id = UUID.randomUUID().toString();
     }
 
-    @Override protected LogStorage createStorage() throws Exception {
+    @Override protected LogStorage createStorage() {
         return PipelineBridge.get().forIDs(LOG_STREAM_NAME, id);
     }
 

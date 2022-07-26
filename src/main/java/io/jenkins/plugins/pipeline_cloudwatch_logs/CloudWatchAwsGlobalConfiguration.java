@@ -26,7 +26,7 @@ package io.jenkins.plugins.pipeline_cloudwatch_logs;
 
 import java.io.IOException;
 
-import javax.annotation.Nonnull;
+import edu.umd.cs.findbugs.annotations.NonNull;
 
 import org.apache.commons.lang.StringUtils;
 import org.jenkinsci.Symbol;
@@ -90,7 +90,7 @@ public class CloudWatchAwsGlobalConfiguration extends AbstractAwsGlobalConfigura
         }
     }
 
-    @Nonnull
+    @NonNull
     @Override
     public String getDisplayName() {
         return "Amazon CloudWatch Logs settings";

@@ -39,9 +39,9 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import javax.annotation.CheckForNull;
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
+import edu.umd.cs.findbugs.annotations.CheckForNull;
+import edu.umd.cs.findbugs.annotations.NonNull;
+import edu.umd.cs.findbugs.annotations.Nullable;
 import jenkins.util.JenkinsJVM;
 import net.sf.json.JSONObject;
 
@@ -54,11 +54,11 @@ abstract class CloudWatchSender implements BuildListener, Closeable {
 
     private static final long serialVersionUID = 1;
 
-    protected final @Nonnull String logGroupName;
+    protected final @NonNull String logGroupName;
     /** for example {@code jenkinsci/git-plugin/master} */
-    protected final @Nonnull String logStreamNameBase;
+    protected final @NonNull String logStreamNameBase;
     /** for example {@code 123} */
-    protected final @Nonnull String buildId;
+    protected final @NonNull String buildId;
     /** for example {@code 7} */
     protected final @CheckForNull String nodeId;
     private transient @CheckForNull PrintStream logger;
@@ -66,7 +66,7 @@ abstract class CloudWatchSender implements BuildListener, Closeable {
     private transient @CheckForNull TimestampTracker timestampTracker;
     protected transient @Nullable LogStreamState state;
 
-    protected CloudWatchSender(@Nonnull String logGroupName, @Nonnull String logStreamNameBase, @Nonnull String buildId, @CheckForNull String nodeId, @CheckForNull TimestampTracker timestampTracker) {
+    protected CloudWatchSender(@NonNull String logGroupName, @NonNull String logStreamNameBase, @NonNull String buildId, @CheckForNull String nodeId, @CheckForNull TimestampTracker timestampTracker) {
         this.logGroupName = Objects.requireNonNull(logGroupName);
         this.logStreamNameBase = Objects.requireNonNull(logStreamNameBase);
         this.buildId = Objects.requireNonNull(buildId);
