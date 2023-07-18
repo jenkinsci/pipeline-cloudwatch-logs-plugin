@@ -24,10 +24,21 @@
 
 package io.jenkins.plugins.pipeline_cloudwatch_logs;
 
-import java.io.IOException;
-
+import com.amazonaws.auth.AWSCredentialsProviderChain;
+import com.amazonaws.auth.AWSStaticCredentialsProvider;
+import com.amazonaws.auth.DefaultAWSCredentialsProviderChain;
+import com.amazonaws.services.logs.AWSLogs;
+import com.amazonaws.services.logs.AWSLogsClientBuilder;
+import com.amazonaws.services.logs.model.FilterLogEventsRequest;
 import edu.umd.cs.findbugs.annotations.NonNull;
-
+import hudson.Extension;
+import hudson.Util;
+import hudson.model.Failure;
+import hudson.util.FormValidation;
+import io.jenkins.plugins.aws.global_configuration.AbstractAwsGlobalConfiguration;
+import io.jenkins.plugins.aws.global_configuration.CredentialsAwsGlobalConfiguration;
+import java.io.IOException;
+import jenkins.model.Jenkins;
 import org.apache.commons.lang.StringUtils;
 import org.jenkinsci.Symbol;
 import org.kohsuke.accmod.Restricted;
@@ -36,27 +47,15 @@ import org.kohsuke.stapler.DataBoundSetter;
 import org.kohsuke.stapler.QueryParameter;
 import org.kohsuke.stapler.interceptor.RequirePOST;
 
-import com.amazonaws.auth.AWSStaticCredentialsProvider;
-import com.amazonaws.auth.DefaultAWSCredentialsProviderChain;
-import com.amazonaws.services.logs.AWSLogs;
-import com.amazonaws.services.logs.AWSLogsClientBuilder;
-import com.amazonaws.services.logs.model.FilterLogEventsRequest;
-
-import edu.umd.cs.findbugs.annotations.NonNull;
-import hudson.Extension;
-import hudson.Util;
-import hudson.model.Failure;
-import hudson.util.FormValidation;
-import io.jenkins.plugins.aws.global_configuration.AbstractAwsGlobalConfiguration;
-import io.jenkins.plugins.aws.global_configuration.CredentialsAwsGlobalConfiguration;
-import jenkins.model.Jenkins;
-
 /**
  * Store the AWS configuration to save it on a separate file
  */
 @Symbol("cloudWatchLogs")
 @Extension
 public class CloudWatchAwsGlobalConfiguration extends AbstractAwsGlobalConfiguration {
+
+    // mutable for tests
+    static AWSCredentialsProviderChain awsCredentialsProviderChain = DefaultAWSCredentialsProviderChain.getInstance();
 
     /**
      * Name of the CloudWatch log group.
@@ -117,7 +116,7 @@ public class CloudWatchAwsGlobalConfiguration extends AbstractAwsGlobalConfigura
                     CredentialsAwsGlobalConfiguration.get().sessionCredentials(builder, region, credentialsId));
             return builder.withCredentials(credentialsProvider);
         } else {
-            return builder.withCredentials(new DefaultAWSCredentialsProviderChain());
+            return builder.withCredentials(awsCredentialsProviderChain);
         }
     }
 
@@ -133,18 +132,18 @@ public class CloudWatchAwsGlobalConfiguration extends AbstractAwsGlobalConfigura
     public FormValidation doValidate(@QueryParameter String logGroupName, @QueryParameter String region,
             @QueryParameter String credentialsId) {
         Jenkins.get().checkPermission(Jenkins.ADMINISTER);
-        return validate(logGroupName, Util.fixEmptyAndTrim(region), Util.fixEmptyAndTrim(credentialsId));
+        return validate(logGroupName, Util.fixEmptyAndTrim(region), Util.fixEmptyAndTrim(credentialsId), true);
     }
 
     @Restricted(NoExternalUse.class)
-    FormValidation validate(String logGroupName, String region, String credentialsId) {
+    FormValidation validate(String logGroupName, String region, String credentialsId, boolean abbreviate) {
         AWSLogs client;
         try {
             AWSLogsClientBuilder builder = getAWSLogsClientBuilder(region, credentialsId);
             client = builder.build();
         } catch (Exception x) {
             String msg = processExceptionMessage(x);
-            return FormValidation.error("Unable to validate credentials: " + StringUtils.abbreviate(msg, 200));
+            return FormValidation.error("Unable to validate credentials: " + (abbreviate ? StringUtils.abbreviate(msg, 200) : msg));
         }
 
         try {
@@ -161,7 +160,7 @@ public class CloudWatchAwsGlobalConfiguration extends AbstractAwsGlobalConfigura
             }
         } catch (Exception x) {
             String msg = processExceptionMessage(x);
-            return FormValidation.error("Unable to simulate policy restriction: " + StringUtils.abbreviate(msg, 200));
+            return FormValidation.error("Unable to simulate policy restriction: " + (abbreviate ? StringUtils.abbreviate(msg, 200) : msg));
         }
         return FormValidation.ok("success");
     }
