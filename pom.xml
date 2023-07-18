@@ -112,6 +112,12 @@
             <version>109.vac7845f10470</version>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>sso</artifactId>
+            <version>2.20.69</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
     <build>
         <plugins>

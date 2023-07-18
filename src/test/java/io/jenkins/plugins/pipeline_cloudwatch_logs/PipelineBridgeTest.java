@@ -24,6 +24,8 @@
 
 package io.jenkins.plugins.pipeline_cloudwatch_logs;
 
+import com.amazonaws.auth.AWSCredentialsProviderChain;
+import com.amazonaws.auth.DefaultAWSCredentialsProviderChain;
 import com.cloudbees.jenkins.plugins.awscredentials.AWSCredentialsImpl;
 import com.cloudbees.plugins.credentials.CredentialsScope;
 import com.cloudbees.plugins.credentials.SystemCredentialsProvider;
@@ -59,8 +61,9 @@ public class PipelineBridgeTest extends LogStorageTestBase {
             SystemCredentialsProvider.getInstance().getCredentials().add(new AWSCredentialsImpl(CredentialsScope.GLOBAL, credentialsId, null, null, null, role, null));
             CredentialsAwsGlobalConfiguration.get().setCredentialsId(credentialsId);
         }
+        CloudWatchAwsGlobalConfiguration.awsCredentialsProviderChain = new AWSCredentialsProviderChain(new V2ProfileCredentialsProvider(), DefaultAWSCredentialsProviderChain.getInstance());
         CloudWatchAwsGlobalConfiguration configuration = ExtensionList.lookupSingleton(CloudWatchAwsGlobalConfiguration.class);
-        FormValidation logGroupNameValidation = configuration.validate(logGroupName, null, credentialsId);
+        FormValidation logGroupNameValidation = configuration.validate(logGroupName, null, credentialsId, false);
         assumeThat(logGroupNameValidation.toString(), logGroupNameValidation.kind, is(FormValidation.Kind.OK));
         configuration.setLogGroupName(logGroupName);
     }

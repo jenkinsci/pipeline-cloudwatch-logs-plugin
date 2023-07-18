@@ -46,6 +46,7 @@ import com.amazonaws.services.logs.model.RejectedLogEventsInfo;
 import com.amazonaws.services.securitytoken.AWSSecurityTokenServiceClientBuilder;
 import com.amazonaws.services.securitytoken.model.AssumeRoleRequest;
 import com.amazonaws.services.securitytoken.model.Credentials;
+import com.amazonaws.services.securitytoken.model.GetCallerIdentityRequest;
 import com.amazonaws.services.securitytoken.model.GetFederationTokenRequest;
 import com.cloudbees.jenkins.plugins.awscredentials.AWSCredentialsImpl;
 import com.cloudbees.jenkins.plugins.awscredentials.AmazonWebServicesCredentials;
@@ -71,6 +72,7 @@ import java.util.logging.Logger;
 import edu.umd.cs.findbugs.annotations.CheckForNull;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
+import java.util.UUID;
 import jenkins.security.HMACConfidentialKey;
 import jenkins.security.SlaveToMasterCallable;
 import jenkins.util.JenkinsJVM;
@@ -190,6 +192,8 @@ abstract class LogStreamState {
             if (jenkinsCredentials != null) {
                 AWSStaticCredentialsProvider credentialsProvider = new AWSStaticCredentialsProvider(jenkinsCredentials.getCredentials());
                 builder.withCredentials(credentialsProvider);
+            } else {
+                builder.withCredentials(CloudWatchAwsGlobalConfiguration.awsCredentialsProviderChain);
             }
             AWSCredentialsProvider credentialsProvider = builder.getCredentials();
             AWSCredentials masterCredentials = credentialsProvider != null ? credentialsProvider.getCredentials() : null;
@@ -205,7 +209,7 @@ abstract class LogStreamState {
             }
             if (masterCredentials instanceof AWSSessionCredentials) {
                 // otherwise would just throw AWSSecurityTokenServiceException: Cannot call GetFederationToken with session credentials
-                String role = null;
+                String role = System.getenv("AWS_CHAINED_ROLE"); // TODO define in CloudWatchAwsGlobalConfiguration?
                 if (jenkinsCredentials instanceof AWSCredentialsImpl) {
                     role = Util.fixEmpty(((AWSCredentialsImpl) jenkinsCredentials).getIamRoleArn());
                 }
@@ -227,15 +231,17 @@ abstract class LogStreamState {
         private Auth assumeRole(String role, String region, String agentLogStreamName) {
             // TODO would be cleaner if AmazonWebServicesCredentials had a getCredentials overload taking a policy
             AWSSecurityTokenServiceClientBuilder builder = AWSSecurityTokenServiceClientBuilder.standard();
+            builder.withCredentials(CloudWatchAwsGlobalConfiguration.awsCredentialsProviderChain);
             if (region != null) {
                 builder = builder.withRegion(region);
             }
-            Auth auth = new Auth(builder.build().assumeRole(new AssumeRoleRequest().
+            Credentials credentials = builder.build().assumeRole(new AssumeRoleRequest().
                     withRoleArn(role).
-                    withRoleSessionName("CloudWatchSender"). // TODO does this need to be unique?
+                    withRoleSessionName("CloudWatchSender-" + UUID.randomUUID()).
                     withPolicy(policy(agentLogStreamName))).
-                getCredentials(), region, agentLogStreamName);
-            LOGGER.log(Level.FINE, "AssumeRole succeeded; using {0}", auth.accessKeyId);
+                getCredentials();
+            Auth auth = new Auth(credentials, region, agentLogStreamName);
+            LOGGER.fine(() -> "AssumeRole succeeded; using " + AWSSecurityTokenServiceClientBuilder.standard().withCredentials(new AWSStaticCredentialsProvider(new BasicSessionCredentials(credentials.getAccessKeyId(), credentials.getSecretAccessKey(), credentials.getSessionToken()))).build().getCallerIdentity(new GetCallerIdentityRequest()));
             return auth;
         }
 
@@ -244,7 +250,7 @@ abstract class LogStreamState {
          */
         private Auth getFederationToken(AWSSecurityTokenServiceClientBuilder builder, String region, String agentLogStreamName) {
             Auth auth = new Auth(builder.build().getFederationToken(new GetFederationTokenRequest().
-                    withName("CloudWatchSender"). // TODO as above?
+                    withName("CloudWatchSender-" + UUID.randomUUID()).
                     withPolicy(policy(agentLogStreamName))).
                 getCredentials(), region, agentLogStreamName);
             LOGGER.log(Level.FINE, "GetFederationToken succeeded; using {0}", auth.accessKeyId);
@@ -272,7 +278,8 @@ abstract class LogStreamState {
         if (auth.restricted) {
             return null;
         } else if (auth.accessKeyId != null) {
-            return "Giving up on limiting session credentials to a policy; using " + auth.accessKeyId + " as is";
+            return "Giving up on limiting session credentials to a policy; using " + auth.accessKeyId + " as is: " +
+                AWSSecurityTokenServiceClientBuilder.standard().withCredentials(CloudWatchAwsGlobalConfiguration.awsCredentialsProviderChain).build().getCallerIdentity(new GetCallerIdentityRequest());
         } else {
             return "No AWS credentials to be found, giving up on limiting to a policy";
         }
