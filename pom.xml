@@ -4,8 +4,8 @@
     <parent>
         <groupId>org.jenkins-ci.plugins</groupId>
         <artifactId>plugin</artifactId>
-        <version>4.44</version>
-        <relativePath />
+        <version>4.71</version>
+        <relativePath/>
     </parent>
     <groupId>io.jenkins.plugins</groupId>
     <artifactId>pipeline-cloudwatch-logs</artifactId>
@@ -13,7 +13,7 @@
     <packaging>hpi</packaging>
     <properties>
         <changelist>999999-SNAPSHOT</changelist>
-        <jenkins.version>2.303.3</jenkins.version>
+        <jenkins.version>2.387.3</jenkins.version>
         <useBeta>true</useBeta>
         <gitHubRepo>jenkinsci/${project.artifactId}-plugin</gitHubRepo>
     </properties>
@@ -47,8 +47,8 @@
         <dependencies>
             <dependency>
                 <groupId>io.jenkins.tools.bom</groupId>
-                <artifactId>bom-2.303.x</artifactId>
-                <version>1500.ve4d05cd32975</version>
+                <artifactId>bom-2.387.x</artifactId>
+                <version>2133.v2e6c00fe4d61</version>
                 <scope>import</scope>
                 <type>pom</type>
             </dependency>
@@ -58,12 +58,11 @@
         <dependency>
             <groupId>org.jenkins-ci.plugins.aws-java-sdk</groupId>
             <artifactId>aws-java-sdk-logs</artifactId>
-            <version>1.12.246-349.v96b_b_f7eb_a_c3c</version>
         </dependency>
         <dependency>
             <groupId>io.jenkins.plugins</groupId>
             <artifactId>aws-global-configuration</artifactId>
-            <version>100.v4619b_45d2dfc</version>
+            <version>116.v918c8d6d13a_3</version>
         </dependency>
         <dependency>
             <groupId>org.jenkins-ci.plugins</groupId>
@@ -108,7 +107,7 @@
         <dependency>
             <groupId>org.jenkins-ci.plugins</groupId>
             <artifactId>mock-slave</artifactId>
-            <version>109.vac7845f10470</version>
+            <version>125.vcfb_5c627d399</version>
             <scope>test</scope>
         </dependency>
         <dependency>
