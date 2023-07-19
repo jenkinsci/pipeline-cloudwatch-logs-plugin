@@ -58,7 +58,7 @@
         <dependency>
             <groupId>org.jenkins-ci.plugins.aws-java-sdk</groupId>
             <artifactId>aws-java-sdk-logs</artifactId>
-            <version>1.12.246-349.v96b_b_f7eb_a_c3c</version>
+            <version>1.12.481-392.v8b_291cfcda_09</version>
         </dependency>
         <dependency>
             <groupId>io.jenkins.plugins</groupId>
