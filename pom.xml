@@ -133,8 +133,8 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
                     <systemPropertyVariables>
-                        <!-- TODO at least locally, live tests are running extremely slowly: -->
-                        <jenkins.test.timeout>600</jenkins.test.timeout>
+                        <!-- TODO locally and on CI, live tests are extremely slow: -->
+                        <jenkins.test.timeout>1200</jenkins.test.timeout>
                     </systemPropertyVariables>
                 </configuration>
             </plugin>
