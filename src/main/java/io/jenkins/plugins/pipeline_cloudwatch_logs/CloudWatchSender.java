@@ -33,8 +33,6 @@ import hudson.model.BuildListener;
 import hudson.remoting.Channel;
 import java.io.Closeable;
 import java.io.IOException;
-import java.io.PrintStream;
-import java.io.UnsupportedEncodingException;
 import java.util.Map;
 import java.util.Objects;
 import java.util.logging.Level;
@@ -42,13 +40,15 @@ import java.util.logging.Logger;
 import edu.umd.cs.findbugs.annotations.CheckForNull;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
+import java.io.OutputStream;
 import jenkins.util.JenkinsJVM;
 import net.sf.json.JSONObject;
+import org.jenkinsci.plugins.workflow.log.OutputStreamTaskListener;
 
 /**
  * Sends Pipeline build log lines to CloudWatch Logs.
  */
-abstract class CloudWatchSender implements BuildListener, Closeable {
+abstract class CloudWatchSender extends OutputStreamTaskListener.Default implements BuildListener, Closeable {
 
     private static final Logger LOGGER = Logger.getLogger(CloudWatchSender.class.getName());
 
@@ -61,7 +61,7 @@ abstract class CloudWatchSender implements BuildListener, Closeable {
     protected final @NonNull String buildId;
     /** for example {@code 7} */
     protected final @CheckForNull String nodeId;
-    private transient @CheckForNull PrintStream logger;
+    private transient @CheckForNull CloudWatchOutputStream logger;
     @SuppressFBWarnings(value = "IS2_INCONSISTENT_SYNC", justification = "Only need to synchronize initialization; thereafter it remains set.")
     private transient @CheckForNull TimestampTracker timestampTracker;
     protected transient @Nullable LogStreamState state;
@@ -129,17 +129,13 @@ abstract class CloudWatchSender implements BuildListener, Closeable {
     }
 
     @Override
-    public synchronized final PrintStream getLogger() {
+    public synchronized final OutputStream getOutputStream() {
         if (logger == null) {
             if (timestampTracker == null) {
                 timestampTracker = new TimestampTracker(); // need to serialize messages though we are not coördinating with CloudWatchRetriever on the master side
             }
             state = loadState();
-            try {
-                logger = new PrintStream(new CloudWatchOutputStream(), false, "UTF-8");
-            } catch (UnsupportedEncodingException x) {
-                throw new AssertionError(x);
-            }
+            logger = new CloudWatchOutputStream();
         }
         return logger;
     }
