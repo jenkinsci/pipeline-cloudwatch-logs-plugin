@@ -44,12 +44,9 @@ import org.jenkinsci.plugins.workflow.log.LogStorage;
 import org.kohsuke.stapler.framework.io.ByteBuffer;
 
 import com.amazonaws.services.logs.AWSLogs;
-import com.amazonaws.services.logs.model.DescribeLogStreamsRequest;
-import com.amazonaws.services.logs.model.DescribeLogStreamsResult;
 import com.amazonaws.services.logs.model.FilterLogEventsRequest;
 import com.amazonaws.services.logs.model.FilterLogEventsResult;
 import com.amazonaws.services.logs.model.FilteredLogEvent;
-import com.amazonaws.services.logs.model.LogStream;
 import com.amazonaws.services.logs.model.ResourceNotFoundException;
 
 import hudson.AbortException;
@@ -235,20 +232,9 @@ class CloudWatchRetriever {
     }
 
     private FilterLogEventsRequest createFilter() {
-        List<String> logStreamNames = new ArrayList<>();
-        String token = null;
-        do {
-            DescribeLogStreamsResult r = client.describeLogStreams(new DescribeLogStreamsRequest(logGroupName).withLogStreamNamePrefix(logStreamNameBase + "@").withNextToken(token));
-            for (LogStream ls : r.getLogStreams()) {
-                logStreamNames.add(ls.getLogStreamName());
-            }
-            token = r.getNextToken();
-        } while (token != null);
-        LOGGER.log(Level.FINEST, "filtering based on {0}", logStreamNames);
         return new FilterLogEventsRequest().
             withLogGroupName(logGroupName).
-            withInterleaved(true).
-            withLogStreamNames(logStreamNames);
+            withLogStreamNamePrefix(logStreamNameBase + "@");
     }
 
 }
