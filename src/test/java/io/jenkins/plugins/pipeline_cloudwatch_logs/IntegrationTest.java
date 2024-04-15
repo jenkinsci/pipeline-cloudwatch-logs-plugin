@@ -36,18 +36,18 @@ import hudson.util.Secret;
 import org.jenkinsci.plugins.plaincredentials.impl.StringCredentialsImpl;
 import org.jenkinsci.plugins.workflow.cps.CpsFlowDefinition;
 import org.jenkinsci.plugins.workflow.job.WorkflowJob;
-import org.junit.ClassRule;
-import org.junit.Test;
-import static org.junit.Assume.assumeFalse;
 import org.junit.Before;
 import org.junit.Rule;
-import org.jvnet.hudson.test.BuildWatcher;
+import org.junit.Test;
 import org.jvnet.hudson.test.Issue;
 import org.jvnet.hudson.test.JenkinsRule;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.allOf;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
+import static org.junit.Assume.assumeFalse;
 
 public class IntegrationTest {
-
-    @ClassRule public static BuildWatcher buildWatcher = new BuildWatcher();
 
     @Rule public JenkinsRule r = new JenkinsRule();
 
@@ -77,6 +77,39 @@ public class IntegrationTest {
             "  }\n" +
             "}", true));
         r.assertLogContains("missing final newline", r.buildAndAssertSuccess(p));
+    }
+
+    @Test public void distinctProjectsAndBuilds() throws Exception {
+        assumeFalse(Functions.isWindows());
+        r.createSlave("remote", null, null);
+        var script =
+            "node('!remote') {\n" +
+            "  sh 'echo $BUILD_TAG on master'\n" +
+            "}\n" +
+            "node('remote') {\n" +
+            "  sh 'echo $BUILD_TAG on agent'\n" +
+            "}\n";
+        var first = r.jenkins.createProject(WorkflowJob.class, "first");
+        first.setDefinition(new CpsFlowDefinition(script, true));
+        var second = r.jenkins.createProject(WorkflowJob.class, "second");
+        second.setDefinition(new CpsFlowDefinition(script, true));
+        var first1 = r.buildAndAssertSuccess(first);
+        var first2 = r.buildAndAssertSuccess(first);
+        var second1 = r.buildAndAssertSuccess(second);
+        assertThat(JenkinsRule.getLog(first1), allOf(
+            containsString("jenkins-first-1 on master"),
+            containsString("jenkins-first-1 on agent"),
+            not(containsString("jenkins-first-2")),
+            not(containsString("jenkins-second-"))));
+        assertThat(JenkinsRule.getLog(first2), allOf(
+            containsString("jenkins-first-2 on master"),
+            containsString("jenkins-first-2 on agent"),
+            not(containsString("jenkins-first-1")),
+            not(containsString("jenkins-second-"))));
+        assertThat(JenkinsRule.getLog(second1), allOf(
+            containsString("jenkins-second-1 on master"),
+            containsString("jenkins-second-1 on agent"),
+            not(containsString("jenkins-first-"))));
     }
 
 }
