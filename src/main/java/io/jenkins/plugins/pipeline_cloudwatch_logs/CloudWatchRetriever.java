@@ -43,12 +43,6 @@ import org.jenkinsci.plugins.workflow.log.ConsoleAnnotators;
 import org.jenkinsci.plugins.workflow.log.LogStorage;
 import org.kohsuke.stapler.framework.io.ByteBuffer;
 
-import com.amazonaws.services.logs.AWSLogs;
-import com.amazonaws.services.logs.model.FilterLogEventsRequest;
-import com.amazonaws.services.logs.model.FilterLogEventsResult;
-import com.amazonaws.services.logs.model.FilteredLogEvent;
-import com.amazonaws.services.logs.model.ResourceNotFoundException;
-
 import hudson.AbortException;
 import hudson.ExtensionList;
 import hudson.Main;
@@ -58,6 +52,11 @@ import java.io.InputStream;
 import java.net.URLEncoder;
 import java.util.concurrent.atomic.AtomicInteger;
 import net.sf.json.JSONObject;
+import software.amazon.awssdk.services.cloudwatchlogs.CloudWatchLogsClient;
+import software.amazon.awssdk.services.cloudwatchlogs.model.FilterLogEventsRequest;
+import software.amazon.awssdk.services.cloudwatchlogs.model.FilterLogEventsResponse;
+import software.amazon.awssdk.services.cloudwatchlogs.model.FilteredLogEvent;
+import software.amazon.awssdk.services.cloudwatchlogs.model.ResourceNotFoundException;
 
 /**
  * Retrieves build logs from CloudWatch.
@@ -70,7 +69,7 @@ class CloudWatchRetriever {
     private final String buildId;
     private final TimestampTracker timestampTracker;
     private final String logGroupName;
-    private final AWSLogs client;
+    private final CloudWatchLogsClient client;
 
     CloudWatchRetriever(String logStreamNameBase, String buildId, TimestampTracker timestampTracker) throws IOException {
         this.logStreamNameBase = logStreamNameBase;
@@ -82,7 +81,7 @@ class CloudWatchRetriever {
             throw new AbortException("You must specify the CloudWatch log group name");
         }
         // TODO refresh client when configuration changes
-        client = configuration.getAWSLogsClientBuilder().build();
+        client = configuration.getCloudWatchLogsClient();
     }
 
     AnnotatedLargeText<FlowExecutionOwner.Executable> overallLog(FlowExecutionOwner.Executable build, boolean complete) throws IOException, InterruptedException {
@@ -180,7 +179,7 @@ class CloudWatchRetriever {
         return timestampTracker.checkCompletion(timestamp -> {
             List<FilteredLogEvent> events;
             try {
-                events = client.filterLogEvents(createFilter().withLimit(1).withStartTime(timestamp)).getEvents();
+                events = client.filterLogEvents(createFilter().limit(1).startTime(timestamp).build()).events();
             } catch (ResourceNotFoundException e) {
                 LOGGER.log(Level.FINE, "{0} or its stream {1}@* do not exist: {2}", new Object[] {logGroupName, logStreamNameBase, e.getMessage()});
                 return false;
@@ -205,19 +204,21 @@ class CloudWatchRetriever {
         try (Writer w = new OutputStreamWriter(os, StandardCharsets.UTF_8)) {
             String token = null;
                 do {
-                    FilterLogEventsResult result;
+                    FilterLogEventsResponse result;
                     try {
-                        result = client.filterLogEvents(createFilter().withFilterPattern("{$.build = \"" + buildId + (nodeId == null ? "" : "\" && $.node = \"" + nodeId) + "\"}").withNextToken(token));
+                        result = client.filterLogEvents(createFilter().filterPattern("{$.build = \"" + buildId + (nodeId == null ? "" : "\" && $.node = \"" + nodeId) + "\"}").nextToken(token).build());
                     } catch (ResourceNotFoundException e) {
                         throw new IOException(String.format("Unable to find log group \"%s\" or log stream \"%s@*\"", logGroupName, logStreamNameBase), e);
                     }
-                    token = result.getNextToken();
-                    List<FilteredLogEvent> events = result.getEvents();
+                    token = result.nextToken();
+                    // TODO is the copying and sorting necessary?
+                    // “The returned log events are sorted by event timestamp, the timestamp when the event was ingested by CloudWatch Logs, and the ID of the PutLogEvents request.“
+                    var events = new ArrayList<>(result.events());
                     LOGGER.log(Level.FINER, "event count {0} from group={1} stream={2}@* buildId={3} nodeId={4}", new Object[] {events.size(), logGroupName, logStreamNameBase, buildId, nodeId});
-                    events.sort(Comparator.comparing(FilteredLogEvent::getTimestamp)); // TODO is this necessary or is it already sorted?
+                    events.sort(Comparator.comparing(FilteredLogEvent::timestamp));
                     for (FilteredLogEvent event : events) {
                         // TODO perhaps translate event.timestamp to a TimestampNote
-                        JSONObject json = JSONObject.fromObject(event.getMessage());
+                        JSONObject json = JSONObject.fromObject(event.message());
                         assert buildId.equals(json.optString("build"));
                         ConsoleNotes.write(w, json);
                         if (idsByLine != null) {
@@ -231,10 +232,10 @@ class CloudWatchRetriever {
         }
     }
 
-    private FilterLogEventsRequest createFilter() {
-        return new FilterLogEventsRequest().
-            withLogGroupName(logGroupName).
-            withLogStreamNamePrefix(logStreamNameBase + "@");
+    private FilterLogEventsRequest.Builder createFilter() {
+        return FilterLogEventsRequest.builder().
+            logGroupName(logGroupName).
+            logStreamNamePrefix(logStreamNameBase + "@");
     }
 
 }

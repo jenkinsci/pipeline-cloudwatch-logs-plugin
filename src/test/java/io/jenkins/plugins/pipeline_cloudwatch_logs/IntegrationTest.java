@@ -24,9 +24,6 @@
 
 package io.jenkins.plugins.pipeline_cloudwatch_logs;
 
-import com.amazonaws.services.logs.AWSLogs;
-import com.amazonaws.services.logs.model.DeleteLogStreamRequest;
-import com.amazonaws.services.logs.model.ResourceNotFoundException;
 import com.cloudbees.plugins.credentials.CredentialsProvider;
 import com.cloudbees.plugins.credentials.CredentialsScope;
 import com.cloudbees.plugins.credentials.domains.Domain;
@@ -46,6 +43,7 @@ import static org.hamcrest.Matchers.allOf;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
 import static org.junit.Assume.assumeFalse;
+import software.amazon.awssdk.services.cloudwatchlogs.model.ResourceNotFoundException;
 
 public class IntegrationTest {
 
@@ -54,10 +52,10 @@ public class IntegrationTest {
     @Before public void setUp() throws Exception {
         PipelineBridgeTest.globalConfiguration();
         CloudWatchAwsGlobalConfiguration config = ExtensionList.lookupSingleton(CloudWatchAwsGlobalConfiguration.class);
-        AWSLogs client = config.getAWSLogsClientBuilder().build();
+        var client = config.getCloudWatchLogsClient();
         for (String node : new String[] {"master", "agent1"}) {
             try {
-                client.deleteLogStream(new DeleteLogStreamRequest(config.getLogGroupName(), "p@" + node));
+                client.deleteLogStream(b -> b.logGroupName(config.getLogGroupName()).logStreamName("p@" + node));
             } catch (ResourceNotFoundException x) {
                 // OK
             }

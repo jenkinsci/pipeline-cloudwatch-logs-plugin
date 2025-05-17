@@ -24,12 +24,6 @@
 
 package io.jenkins.plugins.pipeline_cloudwatch_logs;
 
-import com.amazonaws.auth.AWSCredentialsProviderChain;
-import com.amazonaws.auth.AWSStaticCredentialsProvider;
-import com.amazonaws.auth.DefaultAWSCredentialsProviderChain;
-import com.amazonaws.services.logs.AWSLogs;
-import com.amazonaws.services.logs.AWSLogsClientBuilder;
-import com.amazonaws.services.logs.model.FilterLogEventsRequest;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import hudson.Extension;
 import hudson.Util;
@@ -46,6 +40,8 @@ import org.kohsuke.accmod.restrictions.NoExternalUse;
 import org.kohsuke.stapler.DataBoundSetter;
 import org.kohsuke.stapler.QueryParameter;
 import org.kohsuke.stapler.interceptor.RequirePOST;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.cloudwatchlogs.CloudWatchLogsClient;
 
 /**
  * Store the AWS configuration to save it on a separate file
@@ -53,9 +49,6 @@ import org.kohsuke.stapler.interceptor.RequirePOST;
 @Symbol("cloudWatchLogs")
 @Extension
 public class CloudWatchAwsGlobalConfiguration extends AbstractAwsGlobalConfiguration {
-
-    // mutable for tests
-    static AWSCredentialsProviderChain awsCredentialsProviderChain = DefaultAWSCredentialsProviderChain.getInstance();
 
     /**
      * Name of the CloudWatch log group.
@@ -95,29 +88,28 @@ public class CloudWatchAwsGlobalConfiguration extends AbstractAwsGlobalConfigura
         return "Amazon CloudWatch Logs settings";
     }
 
-    public AWSLogsClientBuilder getAWSLogsClientBuilder() throws IOException {
-        return getAWSLogsClientBuilder(CredentialsAwsGlobalConfiguration.get().getRegion(),
+    public CloudWatchLogsClient getCloudWatchLogsClient() throws IOException {
+        return getCloudWatchLogsClient(CredentialsAwsGlobalConfiguration.get().getRegion(),
                 CredentialsAwsGlobalConfiguration.get().getCredentialsId());
     }
 
     /**
      *
      * @return an AWSLogsClientBuilder using the passed region
-     * @throws IOException
      */
     @Restricted(NoExternalUse.class)
-    static AWSLogsClientBuilder getAWSLogsClientBuilder(String region, String credentialsId) throws IOException {
-        AWSLogsClientBuilder builder = AWSLogsClientBuilder.standard();
+    static CloudWatchLogsClient getCloudWatchLogsClient(String region, String credentialsId) {
+        var builder = CloudWatchLogsClient.builder();
         if (region != null) {
-            builder = builder.withRegion(region);
+            builder = builder.region(Region.of(region));
         }
         if (credentialsId != null) {
-            AWSStaticCredentialsProvider credentialsProvider = new AWSStaticCredentialsProvider(
-                    CredentialsAwsGlobalConfiguration.get().sessionCredentials(builder, region, credentialsId));
-            return builder.withCredentials(credentialsProvider);
-        } else {
-            return builder.withCredentials(awsCredentialsProviderChain);
+            var c = CredentialsAwsGlobalConfiguration.get().getCredentials(credentialsId);
+            if (c != null) {
+                builder.credentialsProvider(c);
+            }
         }
+        return builder.build();
     }
 
     public FormValidation doCheckLogGroupName(@QueryParameter String logGroupName) {
@@ -137,10 +129,9 @@ public class CloudWatchAwsGlobalConfiguration extends AbstractAwsGlobalConfigura
 
     @Restricted(NoExternalUse.class)
     FormValidation validate(String logGroupName, String region, String credentialsId, boolean abbreviate) {
-        AWSLogs client;
+        CloudWatchLogsClient client;
         try {
-            AWSLogsClientBuilder builder = getAWSLogsClientBuilder(region, credentialsId);
-            client = builder.build();
+            client = getCloudWatchLogsClient(region, credentialsId);
         } catch (Exception x) {
             String msg = processExceptionMessage(x);
             return FormValidation.error("Unable to validate credentials: " + (abbreviate ? StringUtils.abbreviate(msg, 200) : msg));
@@ -166,11 +157,9 @@ public class CloudWatchAwsGlobalConfiguration extends AbstractAwsGlobalConfigura
     }
 
     @Restricted(NoExternalUse.class)
-    protected void filter(AWSLogs client, String logGroupName) {
-        FilterLogEventsRequest request = new FilterLogEventsRequest();
-        request.setLogGroupName(logGroupName);
+    protected void filter(CloudWatchLogsClient client, String logGroupName) {
         // TODO this returns a ton of data, when all we care about is that the request does not fail; filter it down to just a few results
-        client.filterLogEvents(request);
+        client.filterLogEvents(b -> b.logGroupName(logGroupName));
     }
 
 }
