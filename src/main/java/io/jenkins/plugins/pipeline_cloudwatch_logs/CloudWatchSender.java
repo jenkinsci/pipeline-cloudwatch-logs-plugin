@@ -24,7 +24,6 @@
 
 package io.jenkins.plugins.pipeline_cloudwatch_logs;
 
-import com.amazonaws.services.logs.model.InputLogEvent;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import hudson.AbortException;
 import hudson.ExtensionList;
@@ -44,6 +43,7 @@ import java.io.OutputStream;
 import jenkins.util.JenkinsJVM;
 import net.sf.json.JSONObject;
 import org.jenkinsci.plugins.workflow.log.OutputStreamTaskListener;
+import software.amazon.awssdk.services.cloudwatchlogs.model.InputLogEvent;
 
 /**
  * Sends Pipeline build log lines to CloudWatch Logs.
@@ -173,9 +173,10 @@ abstract class CloudWatchSender extends OutputStreamTaskListener.Default impleme
             assert timestampTracker != null : "getLogger which creates CloudWatchOutputStream initializes it";
             long now = timestampTracker.eventSent(); // when the logger prints something, *not* when we send it to CWL
             try {
-                if (state.offer(new InputLogEvent().
-                        withTimestamp(now).
-                        withMessage(JSONObject.fromObject(data).toString()))) {
+                if (state.offer(InputLogEvent.builder().
+                        timestamp(now).
+                        message(JSONObject.fromObject(data).toString()).
+                        build())) {
                     LOGGER.log(Level.FINER, "scheduled event @{0} from {1}/{2}#{3}", new Object[] {now, logStreamNameBase, buildId, nodeId});
                 } else {
                     LOGGER.warning("Message buffer full, giving up");

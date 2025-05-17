@@ -24,30 +24,6 @@
 
 package io.jenkins.plugins.pipeline_cloudwatch_logs;
 
-import com.amazonaws.SdkBaseException;
-import com.amazonaws.auth.AWSCredentials;
-import com.amazonaws.auth.AWSCredentialsProvider;
-import com.amazonaws.auth.AWSSessionCredentials;
-import com.amazonaws.auth.AWSStaticCredentialsProvider;
-import com.amazonaws.auth.BasicSessionCredentials;
-import com.amazonaws.services.logs.AWSLogs;
-import com.amazonaws.services.logs.AWSLogsClientBuilder;
-import com.amazonaws.services.logs.model.CreateLogStreamRequest;
-import com.amazonaws.services.logs.model.DescribeLogStreamsRequest;
-import com.amazonaws.services.logs.model.DescribeLogStreamsResult;
-import com.amazonaws.services.logs.model.GetLogEventsRequest;
-import com.amazonaws.services.logs.model.InputLogEvent;
-import com.amazonaws.services.logs.model.InvalidParameterException;
-import com.amazonaws.services.logs.model.InvalidSequenceTokenException;
-import com.amazonaws.services.logs.model.LogStream;
-import com.amazonaws.services.logs.model.PutLogEventsRequest;
-import com.amazonaws.services.logs.model.PutLogEventsResult;
-import com.amazonaws.services.logs.model.RejectedLogEventsInfo;
-import com.amazonaws.services.securitytoken.AWSSecurityTokenServiceClientBuilder;
-import com.amazonaws.services.securitytoken.model.AssumeRoleRequest;
-import com.amazonaws.services.securitytoken.model.Credentials;
-import com.amazonaws.services.securitytoken.model.GetCallerIdentityRequest;
-import com.amazonaws.services.securitytoken.model.GetFederationTokenRequest;
 import com.cloudbees.jenkins.plugins.awscredentials.AWSCredentialsImpl;
 import com.cloudbees.jenkins.plugins.awscredentials.AmazonWebServicesCredentials;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
@@ -76,6 +52,20 @@ import java.util.UUID;
 import jenkins.security.HMACConfidentialKey;
 import jenkins.security.SlaveToMasterCallable;
 import jenkins.util.JenkinsJVM;
+import software.amazon.awssdk.auth.credentials.AwsCredentials;
+import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
+import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.core.exception.SdkException;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.cloudwatchlogs.CloudWatchLogsClient;
+import software.amazon.awssdk.services.cloudwatchlogs.CloudWatchLogsClientBuilder;
+import software.amazon.awssdk.services.cloudwatchlogs.model.InputLogEvent;
+import software.amazon.awssdk.services.cloudwatchlogs.model.InvalidParameterException;
+import software.amazon.awssdk.services.cloudwatchlogs.model.InvalidSequenceTokenException;
+import software.amazon.awssdk.services.sts.StsClient;
+import software.amazon.awssdk.services.sts.StsClientBuilder;
+import software.amazon.awssdk.services.sts.model.Credentials;
 
 /**
  * What is happening in a given log stream.
@@ -120,7 +110,7 @@ abstract class LogStreamState {
 
     private static final class MasterState extends LogStreamState {
 
-        private @CheckForNull AWSLogs client;
+        private @CheckForNull CloudWatchLogsClient client;
         private final Set<String> agentLogStreamNames = new HashSet<>();
 
         private MasterState(String logGroupName, String logStreamNameBase) {
@@ -132,9 +122,9 @@ abstract class LogStreamState {
             return TOKENS.mac(key(logGroupName, logStreamNameBase));
         }
 
-        @Override protected synchronized AWSLogs client() throws IOException {
+        @Override protected synchronized CloudWatchLogsClient client() throws IOException {
             if (client == null) {
-                client = ExtensionList.lookupSingleton(CloudWatchAwsGlobalConfiguration.class).getAWSLogsClientBuilder().build();
+                client = ExtensionList.lookupSingleton(CloudWatchAwsGlobalConfiguration.class).getCloudWatchLogsClient();
             }
             return client;
         }
@@ -156,47 +146,37 @@ abstract class LogStreamState {
 
         @Override protected synchronized void shutDown() {
             if (client != null) {
-                client.shutdown();
+                client.close();
                 client = null;
             }
         }
 
         private void create(String logStreamName) throws IOException {
-            AWSLogs currentClient = client();
+            var currentClient = client();
             boolean found = false;
             String token = null;
             do {
-                DescribeLogStreamsResult r = currentClient.describeLogStreams(new DescribeLogStreamsRequest(logGroupName).withLogStreamNamePrefix(logStreamName).withNextToken(token));
-                for (LogStream ls : r.getLogStreams()) {
-                    if (ls.getLogStreamName().equals(logStreamName)) {
+                var _token = token;
+                var r = currentClient.describeLogStreams(b -> b.logGroupName(logGroupName).logStreamNamePrefix(logStreamName).nextToken(_token));
+                for (var ls : r.logStreams()) {
+                    if (ls.logStreamName().equals(logStreamName)) {
                         found = true;
                     }
                 }
-                token = r.getNextToken();
+                token = r.nextToken();
             } while (!found && token != null);
             if (!found) {
                 // First-time project.
                 LOGGER.log(Level.FINE, "Creating {0}", logStreamName);
-                currentClient.createLogStream(new CreateLogStreamRequest(logGroupName, logStreamName));
+                currentClient.createLogStream(b -> b.logGroupName(logGroupName).logStreamName(logStreamName));
             }
         }
 
         Auth authenticate() throws IOException {
-            AWSSecurityTokenServiceClientBuilder builder = AWSSecurityTokenServiceClientBuilder.standard();
             CredentialsAwsGlobalConfiguration credentialsConfig = CredentialsAwsGlobalConfiguration.get();
             String region = credentialsConfig.getRegion();
-            if (region != null) {
-                builder = builder.withRegion(region);
-            }
             AmazonWebServicesCredentials jenkinsCredentials = credentialsConfig.getCredentials();
-            if (jenkinsCredentials != null) {
-                AWSStaticCredentialsProvider credentialsProvider = new AWSStaticCredentialsProvider(jenkinsCredentials.getCredentials());
-                builder.withCredentials(credentialsProvider);
-            } else {
-                builder.withCredentials(CloudWatchAwsGlobalConfiguration.awsCredentialsProviderChain);
-            }
-            AWSCredentialsProvider credentialsProvider = builder.getCredentials();
-            AWSCredentials masterCredentials = credentialsProvider != null ? credentialsProvider.getCredentials() : null;
+            var masterCredentials = jenkinsCredentials != null ? jenkinsCredentials.resolveCredentials() : DefaultCredentialsProvider.create().resolveCredentials();
             String agentLogStreamName;
             synchronized (agentLogStreamNames) {
                 for (int i = 1; ; i++) {
@@ -207,7 +187,7 @@ abstract class LogStreamState {
                     }
                 }
             }
-            if (masterCredentials instanceof AWSSessionCredentials) {
+            if (masterCredentials instanceof AwsSessionCredentials sessionCredentials) {
                 // otherwise would just throw AWSSecurityTokenServiceException: Cannot call GetFederationToken with session credentials
                 String role = System.getenv("AWS_CHAINED_ROLE"); // TODO define in CloudWatchAwsGlobalConfiguration?
                 if (jenkinsCredentials instanceof AWSCredentialsImpl) {
@@ -216,11 +196,18 @@ abstract class LogStreamState {
                 if (role != null) {
                     return assumeRole(role, region, agentLogStreamName);
                 } else {
-                    return new Auth((AWSSessionCredentials) masterCredentials, region, agentLogStreamName);
+                    return new Auth(sessionCredentials, region, agentLogStreamName);
                 }
             } else if (masterCredentials == null) {
                 return new Auth(region, agentLogStreamName);
             } else {
+                var builder = StsClient.builder();
+                if (region != null) {
+                    builder = builder.region(Region.of(region));
+                }
+                if (jenkinsCredentials != null) {
+                    builder.credentialsProvider(jenkinsCredentials);
+                }
                 return getFederationToken(builder, region, agentLogStreamName);
             }
         }
@@ -230,29 +217,28 @@ abstract class LogStreamState {
          */
         private Auth assumeRole(String role, String region, String agentLogStreamName) {
             // TODO would be cleaner if AmazonWebServicesCredentials had a getCredentials overload taking a policy
-            AWSSecurityTokenServiceClientBuilder builder = AWSSecurityTokenServiceClientBuilder.standard();
-            builder.withCredentials(CloudWatchAwsGlobalConfiguration.awsCredentialsProviderChain);
+            var builder = StsClient.builder();
             if (region != null) {
-                builder = builder.withRegion(region);
+                builder = builder.region(Region.of(region));
             }
-            Credentials credentials = builder.build().assumeRole(new AssumeRoleRequest().
-                    withRoleArn(role).
-                    withRoleSessionName("CloudWatchSender-" + UUID.randomUUID()).
-                    withPolicy(policy(agentLogStreamName))).
-                getCredentials();
+            Credentials credentials = builder.build().assumeRole(b -> b.
+                    roleArn(role).
+                    roleSessionName("CloudWatchSender-" + UUID.randomUUID()).
+                    policy(policy(agentLogStreamName))).
+                credentials();
             Auth auth = new Auth(credentials, region, agentLogStreamName);
-            LOGGER.fine(() -> "AssumeRole succeeded; using " + AWSSecurityTokenServiceClientBuilder.standard().withCredentials(new AWSStaticCredentialsProvider(new BasicSessionCredentials(credentials.getAccessKeyId(), credentials.getSecretAccessKey(), credentials.getSessionToken()))).build().getCallerIdentity(new GetCallerIdentityRequest()));
+            LOGGER.fine(() -> "AssumeRole succeeded; using " + StsClient.builder().credentialsProvider(StaticCredentialsProvider.create(AwsSessionCredentials.create(credentials.accessKeyId(), credentials.secretAccessKey(), credentials.sessionToken()))).build().getCallerIdentity());
             return auth;
         }
 
         /**
          * Creates restricted session credentials for an agent using {@code GetFederationToken}.
          */
-        private Auth getFederationToken(AWSSecurityTokenServiceClientBuilder builder, String region, String agentLogStreamName) {
-            Auth auth = new Auth(builder.build().getFederationToken(new GetFederationTokenRequest().
-                    withName("CloudWatchSender-" + UUID.randomUUID()).
-                    withPolicy(policy(agentLogStreamName))).
-                getCredentials(), region, agentLogStreamName);
+        private Auth getFederationToken(StsClientBuilder builder, String region, String agentLogStreamName) {
+            Auth auth = new Auth(builder.build().getFederationToken(b -> b.
+                    name("CloudWatchSender-" + UUID.randomUUID()).
+                    policy(policy(agentLogStreamName))).
+                credentials(), region, agentLogStreamName);
             LOGGER.log(Level.FINE, "GetFederationToken succeeded; using {0}", auth.accessKeyId);
             return auth;
         }
@@ -279,7 +265,7 @@ abstract class LogStreamState {
             return null;
         } else if (auth.accessKeyId != null) {
             return "Giving up on limiting session credentials to a policy; using " + auth.accessKeyId + " as is: " +
-                AWSSecurityTokenServiceClientBuilder.standard().withCredentials(CloudWatchAwsGlobalConfiguration.awsCredentialsProviderChain).build().getCallerIdentity(new GetCallerIdentityRequest());
+                StsClient.create().getCallerIdentity();
         } else {
             return "No AWS credentials to be found, giving up on limiting to a policy";
         }
@@ -351,7 +337,7 @@ abstract class LogStreamState {
     private static final class AgentState extends LogStreamState {
 
         private final @NonNull String token;
-        private @CheckForNull AWSLogs client;
+        private @CheckForNull CloudWatchLogsClient client;
         private @Nullable String logStreamName;
         private final @NonNull Channel channel;
 
@@ -366,7 +352,7 @@ abstract class LogStreamState {
             return token;
         }
 
-        @Override protected synchronized AWSLogs client() throws IOException, InterruptedException {
+        @Override protected synchronized CloudWatchLogsClient client() throws IOException, InterruptedException {
             if (client == null) {
                 Auth auth = channel.call(new Authenticate(logGroupName, logStreamNameBase, token));
                 client = auth.client();
@@ -388,7 +374,7 @@ abstract class LogStreamState {
 
         @Override protected synchronized void shutDown() {
             if (client != null) {
-                client.shutdown();
+                client.close();
                 client = null;
                 try {
                     channel.callAsync(new NotifyShutdown(logGroupName, logStreamNameBase, token, logStreamName));
@@ -404,7 +390,7 @@ abstract class LogStreamState {
     /** @see MasterState#TOKENS */
     protected abstract @NonNull String token();
 
-    protected abstract @NonNull AWSLogs client() throws IOException, InterruptedException;
+    protected abstract @NonNull CloudWatchLogsClient client() throws IOException, InterruptedException;
 
     protected abstract @NonNull String logStreamName() throws IOException, InterruptedException;
 
@@ -414,7 +400,7 @@ abstract class LogStreamState {
 
     boolean offer(InputLogEvent event) throws IOException, InterruptedException {
         ensureRunning();
-        lastOffered = Math.max(lastOffered, event.getTimestamp());
+        lastOffered = Math.max(lastOffered, event.timestamp());
         return events.offer(event, 1, TimeUnit.MINUTES);
     }
 
@@ -424,7 +410,7 @@ abstract class LogStreamState {
 
     private void process() {
         String logStreamName;
-        AWSLogs currentClient;
+        CloudWatchLogsClient currentClient;
         try {
             logStreamName = logStreamName();
             currentClient = client();
@@ -449,16 +435,17 @@ abstract class LogStreamState {
             }
             // TODO as per https://docs.aws.amazon.com/AmazonCloudWatchLogs/latest/APIReference/API_PutLogEvents.html verify that total size <1Mb (no documented error class for excess size?)
             assert !processing.isEmpty();
-            processing.sort(Comparator.comparing(InputLogEvent::getTimestamp));
+            processing.sort(Comparator.comparing(InputLogEvent::timestamp));
             while (true) {
                 try {
-                    PutLogEventsResult result = currentClient.putLogEvents(new PutLogEventsRequest().
-                            withLogGroupName(logGroupName).
-                            withLogStreamName(logStreamName).
-                            withSequenceToken(sequenceToken).
-                            withLogEvents(processing));
-                    sequenceToken = result.getNextSequenceToken();
-                    RejectedLogEventsInfo problems = result.getRejectedLogEventsInfo();
+                    var _sequenceToken = sequenceToken;
+                    var result = currentClient.putLogEvents(b -> b.
+                            logGroupName(logGroupName).
+                            logStreamName(logStreamName).
+                            sequenceToken(_sequenceToken).
+                            logEvents(processing));
+                    sequenceToken = result.nextSequenceToken();
+                    var problems = result.rejectedLogEventsInfo();
                     if (problems != null) {
                         LOGGER.log(Level.WARNING, "Rejected some log events: {0}", problems);
                     }
@@ -466,13 +453,13 @@ abstract class LogStreamState {
                 } catch (InvalidSequenceTokenException x) {
                     // Normally happens when first starting to send to a given stream from a given node; but if something goes haywire, might happen later too.
                     LOGGER.fine("Recovering from InvalidSequenceTokenException");
-                    sequenceToken = x.getExpectedSequenceToken();
+                    sequenceToken = x.expectedSequenceToken();
                     // and retry
                 } catch (InvalidParameterException x) {
                     LOGGER.log(Level.WARNING, null, x);
                     break MAIN;
-                } catch (SdkBaseException x) {
-                    // E.g.: AWSLogsException: Rate exceeded (Service: AWSLogs; Status Code: 400; Error Code: ThrottlingException; Request ID: …)
+                } catch (SdkException x) {
+                    // E.g.: CloudWatchLogsException: Rate exceeded (Service: AWSLogs; Status Code: 400; Error Code: ThrottlingException; Request ID: …)
                     LOGGER.log(Level.FINE, "retrying", x);
                     try {
                         Thread.sleep(1000); // TODO exponential backoff, and limit number of retries before giving up
@@ -484,7 +471,7 @@ abstract class LogStreamState {
                     break MAIN;
                 }
             }
-            LOGGER.log(Level.FINER, "sent {0} events @{1} from {2}", new Object[] {processing.size(), processing.get(processing.size() - 1).getTimestamp(), logStreamName});
+            LOGGER.log(Level.FINER, "sent {0} events @{1} from {2}", new Object[] {processing.size(), processing.get(processing.size() - 1).timestamp(), logStreamName});
         }
         shutDown();
     }
@@ -498,7 +485,7 @@ abstract class LogStreamState {
                     if (lastOffered > 0) {
                         LOGGER.log(Level.FINER, "all events up to {0} delivered in {1}; confirming receipt", new Object[] {lastOffered, logStreamNameBase});
                         String logStreamName = logStreamName();
-                        if (client().getLogEvents(new GetLogEventsRequest(logGroupName, logStreamName).withLimit(1).withStartTime(lastOffered)).getEvents().isEmpty()) {
+                        if (client().getLogEvents(b -> b.logGroupName(logGroupName).logStreamName(logStreamName).limit(1).startTime(lastOffered)).events().isEmpty()) {
                             LOGGER.log(Level.FINER, "delivered an event in {0} with timestamp={1} but it has not yet been received", new Object[] {logStreamName, lastOffered});
                         } else {
                             LOGGER.log(Level.FINER, "confirmed event delivery in {0} with timestamp={1}", new Object[] {logStreamName, lastOffered});
@@ -537,10 +524,10 @@ abstract class LogStreamState {
         @SuppressFBWarnings(value = "SE_TRANSIENT_FIELD_NOT_RESTORED", justification = "only used in validation")
         transient final boolean restricted;
         Auth(Credentials credentials, String region, String logStreamName) {
-            this(credentials.getAccessKeyId(), credentials.getSecretAccessKey(), credentials.getSessionToken(), region, logStreamName, true);
+            this(credentials.accessKeyId(), credentials.secretAccessKey(), credentials.sessionToken(), region, logStreamName, true);
         }
-        Auth(AWSSessionCredentials credentials, String region, String logStreamName) {
-            this(credentials.getAWSAccessKeyId(), credentials.getAWSSecretKey(), credentials.getSessionToken(), region, logStreamName, false);
+        Auth(AwsSessionCredentials credentials, String region, String logStreamName) {
+            this(credentials.accessKeyId(), credentials.secretAccessKey(), credentials.sessionToken(), region, logStreamName, false);
         }
         Auth(String region, String logStreamName) {
             this(null, null, null, region, logStreamName, false);
@@ -553,22 +540,18 @@ abstract class LogStreamState {
             this.logStreamName = logStreamName;
             this.restricted = restricted;
         }
-        AWSLogs client() {
-            AWSLogsClientBuilder builder;
+        CloudWatchLogsClient client() {
+            CloudWatchLogsClientBuilder builder;
             if (accessKeyId != null) {
-                builder = AWSLogsClientBuilder.standard();
+                builder = CloudWatchLogsClient.builder();
                 if (region != null) {
-                    builder = builder.withRegion(region);
+                    builder = builder.region(Region.of(region));
                 }
-                builder.withCredentials(new AWSStaticCredentialsProvider(new BasicSessionCredentials(accessKeyId, secretAccessKey, sessionToken)));
+                builder.credentialsProvider(StaticCredentialsProvider.create(AwsSessionCredentials.create(accessKeyId, secretAccessKey, sessionToken)));
+                return builder.build();
             } else {
-                try {
-                    builder = CloudWatchAwsGlobalConfiguration.getAWSLogsClientBuilder(region, null);
-                } catch (IOException x) {
-                    throw new RuntimeException(x);
-                }
+                return CloudWatchAwsGlobalConfiguration.getCloudWatchLogsClient(region, null);
             }
-            return builder.build();
         }
     }
 
