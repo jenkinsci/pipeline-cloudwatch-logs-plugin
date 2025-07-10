@@ -67,7 +67,7 @@ Temporary credentials are issued with a default expiration time (such as one hou
 and are not currently refreshed after that expiration,
 so there may be a loss of content for individual steps running longer than that.
 
-Only `AssumeRule` starting with temporary security credentials has been tested for purposes of policy restriction.
+Only `AssumeRole` starting with temporary security credentials has been tested for purposes of policy restriction.
 `GetFederationToken` has not been tested.
 
 The retrieval of log content from CloudWatch Logs for display inside Jenkins is not well optimized.
