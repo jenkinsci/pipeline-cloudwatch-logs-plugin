@@ -151,7 +151,7 @@ abstract class CloudWatchSender extends OutputStreamTaskListener.Default impleme
         }
         if (nodeId != null && JenkinsJVM.isJenkinsJVM()) {
             // Note that this does not necessarily shut down the AWSLogs client; that is shared across builds.
-            PipelineBridge.get().close(logStreamNameBase, buildId);
+            PipelineBridge.close(logStreamNameBase, buildId);
         }
     }
 

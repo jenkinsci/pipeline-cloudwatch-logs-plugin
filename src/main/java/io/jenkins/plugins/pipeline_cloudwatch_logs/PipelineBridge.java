@@ -40,27 +40,20 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import org.jenkinsci.Symbol;
 import org.jenkinsci.plugins.workflow.flow.FlowExecutionOwner;
 import org.jenkinsci.plugins.workflow.graph.FlowNode;
 import org.jenkinsci.plugins.workflow.log.BrokenLogStorage;
 import org.jenkinsci.plugins.workflow.log.LogStorage;
 import org.jenkinsci.plugins.workflow.log.LogStorageFactory;
+import org.jenkinsci.plugins.workflow.log.LogStorageFactoryDescriptor;
 
 /**
  * Binds CloudWatch to Pipeline logs.
  */
-@Extension
 public final class PipelineBridge implements LogStorageFactory {
 
-    static {
-        // Make sure JENKINS-52165 is enabled, or performance will be awful for remote shell steps.
-        System.setProperty("org.jenkinsci.plugins.workflow.steps.durable_task.DurableTaskStep.USE_WATCHING", "true");
-    }
-
     private static final Logger LOGGER = Logger.getLogger(PipelineBridge.class.getName());
-
-    private final Map<String, TimestampTracker> timestampTrackers = new ConcurrentHashMap<>();
-    private final Map<String, LogStorageImpl> impls = new ConcurrentHashMap<>();
 
     @Override
     public LogStorage forBuild(FlowExecutionOwner owner) {
@@ -82,18 +75,38 @@ public final class PipelineBridge implements LogStorageFactory {
         return forIDs(logStreamNameBase, buildId);
     }
 
-    static PipelineBridge get() {
-        return ExtensionList.lookupSingleton(PipelineBridge.class);
+    static LogStorage forIDs(String logStreamNameBase, String buildId) {
+        var descriptor = ExtensionList.lookupSingleton(PipelineBridge.DescriptorImpl.class);
+        return descriptor.impls.computeIfAbsent(logStreamNameBase + "#" + buildId, k -> new LogStorageImpl(logStreamNameBase, buildId, descriptor.timestampTrackers));
     }
 
-    LogStorage forIDs(String logStreamNameBase, String buildId) {
-        return impls.computeIfAbsent(logStreamNameBase + "#" + buildId, k -> new LogStorageImpl(logStreamNameBase, buildId, timestampTrackers));
+    static void close(String logStreamNameBase, String buildId) {
+        var descriptor = ExtensionList.lookupSingleton(PipelineBridge.DescriptorImpl.class);
+        descriptor.impls.remove(logStreamNameBase + "#" + buildId);
     }
 
-    void close(String logStreamNameBase, String buildId) {
-        impls.remove(logStreamNameBase + "#" + buildId);
+    @Extension
+    @Symbol("amazonCloudWatchLogs")
+    public static class DescriptorImpl extends LogStorageFactoryDescriptor<PipelineBridge> {
+        static {
+            // Make sure JENKINS-52165 is enabled, or performance will be awful for remote shell steps.
+            System.setProperty("org.jenkinsci.plugins.workflow.steps.durable_task.DurableTaskStep.USE_WATCHING", "true");
+        }
+
+        private final Map<String, TimestampTracker> timestampTrackers = new ConcurrentHashMap<>();
+        private final Map<String, LogStorageImpl> impls = new ConcurrentHashMap<>();
+
+        @Override
+        public String getDisplayName() {
+            return "Amazon CloudWatch Logs";
+        }
+
+        @Override
+        public PipelineBridge getDefaultInstance() {
+            return new PipelineBridge();
+        }
     }
-    
+
     private static class LogStorageImpl implements LogStorage {
 
         private final String logStreamNameBase;
