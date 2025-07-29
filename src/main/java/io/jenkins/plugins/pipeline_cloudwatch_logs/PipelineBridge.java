@@ -47,6 +47,7 @@ import org.jenkinsci.plugins.workflow.log.BrokenLogStorage;
 import org.jenkinsci.plugins.workflow.log.LogStorage;
 import org.jenkinsci.plugins.workflow.log.LogStorageFactory;
 import org.jenkinsci.plugins.workflow.log.LogStorageFactoryDescriptor;
+import org.kohsuke.stapler.DataBoundConstructor;
 
 /**
  * Binds CloudWatch to Pipeline logs.
@@ -54,6 +55,9 @@ import org.jenkinsci.plugins.workflow.log.LogStorageFactoryDescriptor;
 public final class PipelineBridge implements LogStorageFactory {
 
     private static final Logger LOGGER = Logger.getLogger(PipelineBridge.class.getName());
+
+    @DataBoundConstructor
+    public PipelineBridge() {}
 
     @Override
     public LogStorage forBuild(FlowExecutionOwner owner) {
