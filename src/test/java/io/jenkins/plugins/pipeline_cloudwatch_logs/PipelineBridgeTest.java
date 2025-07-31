@@ -71,7 +71,7 @@ public class PipelineBridgeTest extends LogStorageTestBase {
     }
 
     @Override protected LogStorage createStorage() {
-        return PipelineBridge.get().forIDs(LOG_STREAM_NAME, id);
+        return PipelineBridge.forIDs(LOG_STREAM_NAME, id);
     }
 
     @Override protected Map<String, Level> agentLoggers() {
