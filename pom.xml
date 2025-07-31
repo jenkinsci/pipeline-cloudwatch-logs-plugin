@@ -162,4 +162,31 @@
             </plugin>
         </plugins>
     </build>
+    <profiles>
+      <profile>
+          <id>cloudwatch-logs-settings</id>
+          <activation>
+              <property>
+                  <name>CLOUDWATCH_LOG_GROUP_NAME</name>
+              </property>
+          </activation>
+          <build>
+              <plugins>
+                  <plugin>
+                      <groupId>org.apache.maven.plugins</groupId>
+                      <artifactId>maven-surefire-plugin</artifactId>
+                      <configuration>
+                          <environmentVariables>
+                              <AWS_PROFILE>${AWS_PROFILE}</AWS_PROFILE>
+                              <AWS_ROLE>${AWS_ROLE}</AWS_ROLE>
+                              <AWS_CHAINED_ROLE>${AWS_CHAINED_ROLE}</AWS_CHAINED_ROLE>
+                              <AWS_REGION>${AWS_REGION}</AWS_REGION>
+                              <CLOUDWATCH_LOG_GROUP_NAME>${CLOUDWATCH_LOG_GROUP_NAME}</CLOUDWATCH_LOG_GROUP_NAME>
+                          </environmentVariables>
+                      </configuration>
+                  </plugin>
+              </plugins>
+          </build>
+      </profile>
+  </profiles>
 </project>

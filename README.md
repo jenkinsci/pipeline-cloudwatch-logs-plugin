@@ -112,6 +112,26 @@ and as such requires several environment variables to be set:
 * `AWS_REGION` should be set to, e.g., `us-east-1`.
 * `CLOUDWATCH_LOG_GROUP_NAME` should be set to a test log group name, which you may need to precreate.
 
+You may configure the above environment variables in your `~/.m2/settings.xml` and they will be applied automatically when running `mvn test`:
+
+```
+    <profiles>
+        <profile>
+            <id>pipeline-cloudwatch-logs</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
+            <properties>
+                <AWS_PROFILE>…</AWS_PROFILE>
+                <AWS_ROLE>…</AWS_ROLE>
+                <AWS_CHAINED_ROLE>…</AWS_CHAINED_ROLE>
+                <AWS_REGION>…</AWS_REGION>
+                <CLOUDWATCH_LOG_GROUP_NAME>…</CLOUDWATCH_LOG_GROUP_NAME>
+            </properties>
+        </profile>
+    </profiles>
+```
+
 The actual test case are defined a TCK-like
 [`LogStorageTestBase`](https://github.com/jenkinsci/workflow-api-plugin/blob/907cf64feb2f38e93aebbedf87946b0235c3dc93/src/test/java/org/jenkinsci/plugins/workflow/log/LogStorageTestBase.java#L81-L295)
 and you may run an individual test case if desired:
