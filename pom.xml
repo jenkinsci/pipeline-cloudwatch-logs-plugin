@@ -4,7 +4,7 @@
     <parent>
         <groupId>org.jenkins-ci.plugins</groupId>
         <artifactId>plugin</artifactId>
-        <version>5.26</version>
+        <version>5.27</version>
         <relativePath />
     </parent>
     <groupId>io.jenkins.plugins</groupId>
@@ -14,10 +14,12 @@
     <properties>
         <changelist>999999-SNAPSHOT</changelist>
         <!-- https://www.jenkins.io/doc/developer/plugin-development/choosing-jenkins-baseline/ -->
-        <jenkins.baseline>2.492</jenkins.baseline>
-        <jenkins.version>${jenkins.baseline}.3</jenkins.version>
+        <!-- required by workflow-api -->
+        <jenkins.baseline>2.528</jenkins.baseline>
+        <jenkins.version>2.532</jenkins.version>
         <useBeta>true</useBeta>
         <gitHubRepo>jenkinsci/${project.artifactId}-plugin</gitHubRepo>
+        <ban-junit4-imports.skip>false</ban-junit4-imports.skip>
     </properties>
     <name>Pipeline Logging over CloudWatch Plugin</name>
     <licenses>
@@ -50,7 +52,7 @@
             <dependency>
                 <groupId>io.jenkins.tools.bom</groupId>
                 <artifactId>bom-${jenkins.baseline}.x</artifactId>
-                <version>5473.vb_9533d9e5d88</version>
+                <version>5577.vea_979d35b_b_ff</version>
                 <scope>import</scope>
                 <type>pom</type>
             </dependency>
@@ -64,6 +66,12 @@
         <dependency>
             <groupId>io.jenkins.plugins</groupId>
             <artifactId>aws-global-configuration</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.sun.xml.bind</groupId>
+                    <artifactId>jaxb-impl</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>org.jenkins-ci.plugins</groupId>
@@ -72,11 +80,15 @@
         <dependency>
             <groupId>org.jenkins-ci.plugins.workflow</groupId>
             <artifactId>workflow-api</artifactId>
+            <!-- remove when available in bom -->
+            <version>1409.v2617b_cfa_ff03</version>
         </dependency>
         <dependency>
             <groupId>org.jenkins-ci.plugins.workflow</groupId>
             <artifactId>workflow-api</artifactId>
             <classifier>tests</classifier>
+            <!-- remove when available in bom -->
+            <version>1409.v2617b_cfa_ff03</version>
             <scope>test</scope>
         </dependency>
         <dependency>
