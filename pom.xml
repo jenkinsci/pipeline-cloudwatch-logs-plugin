@@ -111,9 +111,8 @@
             <scope>test</scope>
         </dependency>
         <dependency>
-            <groupId>software.amazon.awssdk</groupId>
-            <artifactId>sso</artifactId>
-            <version>2.34.7</version>
+            <groupId>io.jenkins.plugins.aws-java-sdk2</groupId>
+            <artifactId>aws-java-sdk2-sso</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>
