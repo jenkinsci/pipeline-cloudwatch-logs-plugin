@@ -4,7 +4,7 @@
     <parent>
         <groupId>org.jenkins-ci.plugins</groupId>
         <artifactId>plugin</artifactId>
-        <version>5.27</version>
+        <version>5.2102.v5f5fe09fccf1</version>
         <relativePath />
     </parent>
     <groupId>io.jenkins.plugins</groupId>
@@ -123,9 +123,8 @@
             <scope>test</scope>
         </dependency>
         <dependency>
-            <groupId>software.amazon.awssdk</groupId>
-            <artifactId>sso</artifactId>
-            <version>2.34.7</version>
+            <groupId>io.jenkins.plugins.aws-java-sdk2</groupId>
+            <artifactId>aws-java-sdk2-sso</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>
