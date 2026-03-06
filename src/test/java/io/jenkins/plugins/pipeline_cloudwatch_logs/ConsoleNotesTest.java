@@ -29,14 +29,16 @@ import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import net.sf.json.JSONObject;
-import static org.hamcrest.Matchers.*;
-import static org.junit.Assert.*;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-public class ConsoleNotesTest {
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+class ConsoleNotesTest {
 
     @Test
-    public void parse() throws Exception {
+    void parse() throws Exception {
         assertParse("some message\n");
         assertParse("some message\r\n");
         assertParse("\u001b[8mha:////SomeJunk+AAAA\u001b[0m[Pipeline] }\n");
@@ -60,7 +62,6 @@ public class ConsoleNotesTest {
         if (line.contains(ConsoleNote.PREAMBLE_STR) && line.contains(ConsoleNote.POSTAMBLE_STR)) {
             assertThat(line + " converted to " + json, (String) map.get("message"), not(containsString("\u001b")));
         }
-        assertEquals(line + " converted to " + json, line.replaceFirst("[\r\n]+$", "") + "\n", w.toString());
+        assertEquals(line.replaceFirst("[\r\n]+$", "") + "\n", w.toString(), line + " converted to " + json);
     }
-
 }

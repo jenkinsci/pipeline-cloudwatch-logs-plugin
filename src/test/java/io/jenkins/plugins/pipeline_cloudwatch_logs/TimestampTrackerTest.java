@@ -24,18 +24,44 @@
 
 package io.jenkins.plugins.pipeline_cloudwatch_logs;
 
-import org.junit.Test;
-import static org.junit.Assert.*;
+import org.junit.jupiter.api.Test;
 
-public class TimestampTrackerTest {
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
-    @Test public void monoticallyIncrease() throws Exception {
+class TimestampTrackerTest {
+
+    @Test
+    void monoticallyIncrease() {
         assertEquals(1234, TimestampTracker.monoticallyIncrease(0, 1234));
         assertEquals(1235, TimestampTracker.monoticallyIncrease(1234, 1234));
         assertEquals(1236, TimestampTracker.monoticallyIncrease(1235, 1234));
         assertEquals(3000, TimestampTracker.monoticallyIncrease(3000, 1234));
     }
 
-    // TODO test for checkCompletion
+    @Test
+    void checkCompletion() {
+        TimestampTracker tracker = new TimestampTracker();
+        assertTrue(tracker.checkCompletion(timestamp -> true));
+        assertTrue(tracker.checkCompletion(timestamp -> false));
 
+        tracker.eventSent();
+        assertTrue(tracker.checkCompletion(timestamp -> true));
+
+        tracker.eventSent();
+        assertFalse(tracker.checkCompletion(timestamp -> false));
+
+        tracker.eventSent();
+        assertTrue(tracker.checkCompletion(timestamp -> {
+            tracker.eventSent();
+            return true;
+        }));
+
+        tracker.eventSent();
+        assertFalse(tracker.checkCompletion(timestamp -> {
+            tracker.eventSent();
+            return false;
+        }));
+    }
 }
