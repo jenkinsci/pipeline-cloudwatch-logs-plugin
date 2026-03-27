@@ -119,7 +119,17 @@ public final class PipelineBridge implements LogStorageFactory {
         @Override
         public AnnotatedLargeText<FlowExecutionOwner.Executable> overallLog(FlowExecutionOwner.Executable build, boolean complete) {
             try {
-                return new CloudWatchRetriever(logStreamNameBase, buildId, timestampTracker()).overallLog(build, complete);
+                long buildStartTime = 0;
+                long buildEndTime = 0;
+                if (build instanceof Run) {
+                    Run<?, ?> run = (Run<?, ?>) build;
+                    buildStartTime = run.getStartTimeInMillis();
+                    long duration = run.getDuration();
+                    if (duration > 0) {
+                        buildEndTime = buildStartTime + duration;
+                    }
+                }
+                return new CloudWatchRetriever(logStreamNameBase, buildId, timestampTracker(), buildStartTime, buildEndTime).overallLog(build, complete);
             } catch (Exception x) {
                 return new BrokenLogStorage(x).overallLog(build, complete);
             }
@@ -128,7 +138,22 @@ public final class PipelineBridge implements LogStorageFactory {
         @Override
         public AnnotatedLargeText<FlowNode> stepLog(FlowNode node, boolean complete) {
             try {
-                return new CloudWatchRetriever(logStreamNameBase, buildId, timestampTracker()).stepLog(node, complete);
+                long buildStartTime = 0;
+                long buildEndTime = 0;
+                try {
+                    Queue.Executable exec = node.getExecution().getOwner().getExecutable();
+                    if (exec instanceof Run) {
+                        Run<?, ?> run = (Run<?, ?>) exec;
+                        buildStartTime = run.getStartTimeInMillis();
+                        long duration = run.getDuration();
+                        if (duration > 0) {
+                            buildEndTime = buildStartTime + duration;
+                        }
+                    }
+                } catch (IOException e) {
+                    LOGGER.log(Level.FINE, "Could not determine build time bounds for step log filter", e);
+                }
+                return new CloudWatchRetriever(logStreamNameBase, buildId, timestampTracker(), buildStartTime, buildEndTime).stepLog(node, complete);
             } catch (Exception x) {
                 return new BrokenLogStorage(x).stepLog(node, complete);
             }
