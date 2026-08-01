@@ -34,24 +34,24 @@ import java.util.Collections;
 import java.util.Map;
 import java.util.UUID;
 import java.util.logging.Level;
-import static org.hamcrest.Matchers.*;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
+
 import org.jenkinsci.plugins.workflow.log.LogStorage;
 import org.jenkinsci.plugins.workflow.log.LogStorageTestBase;
-import static org.junit.Assume.*;
-import org.junit.Before;
-import org.junit.Rule;
-import org.jvnet.hudson.test.LoggerRule;
+import org.junit.jupiter.api.BeforeEach;
+import org.jvnet.hudson.test.LogRecorder;
 
-public class PipelineBridgeTest extends LogStorageTestBase {
+class PipelineBridgeTest extends LogStorageTestBase {
 
     private static final String LOG_STREAM_NAME = "PipelineBridgeTest";
 
-    @Rule public LoggerRule logging = new LoggerRule().recordPackage(PipelineBridge.class, Level.FINER);
+    @SuppressWarnings("unused")
+    private final LogRecorder logging = new LogRecorder().recordPackage(PipelineBridge.class, Level.FINER);
     private String id;
 
-    static void globalConfiguration() throws Exception {
+    static void globalConfiguration() {
         String logGroupName = System.getenv("CLOUDWATCH_LOG_GROUP_NAME");
-        assumeThat("must define $CLOUDWATCH_LOG_GROUP_NAME", logGroupName, notNullValue());
+        assumeTrue(logGroupName != null, "must define $CLOUDWATCH_LOG_GROUP_NAME");
         String role = System.getenv("AWS_ROLE");
         String credentialsId = null;
         if (role != null) {
@@ -61,21 +61,23 @@ public class PipelineBridgeTest extends LogStorageTestBase {
         }
         CloudWatchAwsGlobalConfiguration configuration = ExtensionList.lookupSingleton(CloudWatchAwsGlobalConfiguration.class);
         FormValidation logGroupNameValidation = configuration.validate(logGroupName, null, credentialsId, false);
-        assumeThat(logGroupNameValidation.toString(), logGroupNameValidation.kind, is(FormValidation.Kind.OK));
+        assumeTrue(logGroupNameValidation.kind == FormValidation.Kind.OK, logGroupNameValidation.toString());
         configuration.setLogGroupName(logGroupName);
     }
 
-    @Before public void setUp() throws Exception {
+    @BeforeEach
+    void setUp() {
         globalConfiguration();
         id = UUID.randomUUID().toString();
     }
 
-    @Override protected LogStorage createStorage() {
+    @Override
+    protected LogStorage createStorage() {
         return PipelineBridge.get().forIDs(LOG_STREAM_NAME, id);
     }
 
-    @Override protected Map<String, Level> agentLoggers() {
+    @Override
+    protected Map<String, Level> agentLoggers() {
         return Collections.singletonMap(PipelineBridge.class.getPackage().getName(), Level.FINER);
     }
-
 }

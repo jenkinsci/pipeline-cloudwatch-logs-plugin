@@ -33,23 +33,28 @@ import hudson.util.Secret;
 import org.jenkinsci.plugins.plaincredentials.impl.StringCredentialsImpl;
 import org.jenkinsci.plugins.workflow.cps.CpsFlowDefinition;
 import org.jenkinsci.plugins.workflow.job.WorkflowJob;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.jvnet.hudson.test.Issue;
 import org.jvnet.hudson.test.JenkinsRule;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.allOf;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
-import static org.junit.Assume.assumeFalse;
+import static org.junit.jupiter.api.Assumptions.assumeFalse;
+
+import org.jvnet.hudson.test.junit.jupiter.WithJenkins;
 import software.amazon.awssdk.services.cloudwatchlogs.model.ResourceNotFoundException;
 
-public class IntegrationTest {
+@WithJenkins
+class IntegrationTest {
 
-    @Rule public JenkinsRule r = new JenkinsRule();
+    private JenkinsRule r;
 
-    @Before public void setUp() throws Exception {
+    @BeforeEach
+    void setUp(JenkinsRule rule) throws Exception {
+        r = rule;
+
         PipelineBridgeTest.globalConfiguration();
         CloudWatchAwsGlobalConfiguration config = ExtensionList.lookupSingleton(CloudWatchAwsGlobalConfiguration.class);
         var client = config.getCloudWatchLogsClient();
@@ -63,30 +68,35 @@ public class IntegrationTest {
     }
 
     @Issue("https://github.com/jenkinsci/workflow-durable-task-step-plugin/pull/112")
-    @Test public void missingNewline() throws Exception {
+    @Test
+    void missingNewline() throws Exception {
         assumeFalse(Functions.isWindows());
         CredentialsProvider.lookupStores(r.jenkins).iterator().next().addCredentials(Domain.global(), new StringCredentialsImpl(CredentialsScope.GLOBAL, "creds", null, Secret.fromString("s3cr3t")));
         r.createSlave("remote", null, null);
         WorkflowJob p = r.jenkins.createProject(WorkflowJob.class, "p");
         p.setDefinition(new CpsFlowDefinition(
-            "node('remote') {\n" +
-            "  withCredentials([string(variable: 'UNUSED', credentialsId: 'creds')]) {\n" +
-            "    sh 'set +x; printf \"missing final newline\"'\n" +
-            "  }\n" +
-            "}", true));
+                """
+                        node('remote') {
+                          withCredentials([string(variable: 'UNUSED', credentialsId: 'creds')]) {
+                            sh 'set +x; printf "missing final newline"'
+                          }
+                        }""", true));
         r.assertLogContains("missing final newline", r.buildAndAssertSuccess(p));
     }
 
-    @Test public void distinctProjectsAndBuilds() throws Exception {
+    @Test
+    void distinctProjectsAndBuilds() throws Exception {
         assumeFalse(Functions.isWindows());
         r.createSlave("remote", null, null);
         var script =
-            "node('!remote') {\n" +
-            "  sh 'echo $BUILD_TAG on master'\n" +
-            "}\n" +
-            "node('remote') {\n" +
-            "  sh 'echo $BUILD_TAG on agent'\n" +
-            "}\n";
+                """
+                        node('!remote') {
+                          sh 'echo $BUILD_TAG on master'
+                        }
+                        node('remote') {
+                          sh 'echo $BUILD_TAG on agent'
+                        }
+                        """;
         var first = r.jenkins.createProject(WorkflowJob.class, "first");
         first.setDefinition(new CpsFlowDefinition(script, true));
         var second = r.jenkins.createProject(WorkflowJob.class, "second");
@@ -109,5 +119,4 @@ public class IntegrationTest {
             containsString("jenkins-second-1 on agent"),
             not(containsString("jenkins-first-"))));
     }
-
 }
