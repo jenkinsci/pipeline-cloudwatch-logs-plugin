@@ -65,16 +65,23 @@ class CloudWatchRetriever {
 
     private static final Logger LOGGER = Logger.getLogger(CloudWatchRetriever.class.getName());
 
+    /** Buffer added before/after the build window to account for clock skew between Jenkins and CloudWatch. */
+    static final long CLOCK_SKEW_BUFFER_MS = 5 * 60 * 1000L; // 5 minutes
+
     private final String logStreamNameBase;
     private final String buildId;
     private final TimestampTracker timestampTracker;
     private final String logGroupName;
     private final CloudWatchLogsClient client;
+    private final long buildStartTime;
+    private final long buildEndTime;
 
-    CloudWatchRetriever(String logStreamNameBase, String buildId, TimestampTracker timestampTracker) throws IOException {
+    CloudWatchRetriever(String logStreamNameBase, String buildId, TimestampTracker timestampTracker, long buildStartTime, long buildEndTime) throws IOException {
         this.logStreamNameBase = logStreamNameBase;
         this.buildId = buildId;
         this.timestampTracker = timestampTracker;
+        this.buildStartTime = buildStartTime;
+        this.buildEndTime = buildEndTime;
         CloudWatchAwsGlobalConfiguration configuration = ExtensionList.lookupSingleton(CloudWatchAwsGlobalConfiguration.class);
         logGroupName = configuration.getLogGroupName();
         if (logGroupName == null) {
@@ -233,9 +240,16 @@ class CloudWatchRetriever {
     }
 
     private FilterLogEventsRequest.Builder createFilter() {
-        return FilterLogEventsRequest.builder().
+        FilterLogEventsRequest.Builder builder = FilterLogEventsRequest.builder().
             logGroupName(logGroupName).
             logStreamNamePrefix(logStreamNameBase + "@");
+        if (buildStartTime > 0) {
+            builder = builder.startTime(buildStartTime - CLOCK_SKEW_BUFFER_MS);
+        }
+        if (buildEndTime > 0) {
+            builder = builder.endTime(buildEndTime + CLOCK_SKEW_BUFFER_MS);
+        }
+        return builder;
     }
 
 }
