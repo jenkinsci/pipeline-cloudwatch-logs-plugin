@@ -40,6 +40,7 @@ import edu.umd.cs.findbugs.annotations.CheckForNull;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
 import java.io.OutputStream;
+import jenkins.agents.AgentToControllerCallable;
 import jenkins.util.JenkinsJVM;
 import net.sf.json.JSONObject;
 import org.jenkinsci.plugins.workflow.log.OutputStreamTaskListener;
@@ -54,9 +55,6 @@ abstract class CloudWatchSender extends OutputStreamTaskListener.Default impleme
 
     private static final long serialVersionUID = 1;
 
-    protected final @NonNull String logGroupName;
-    /** for example {@code jenkinsci/git-plugin/master} */
-    protected final @NonNull String logStreamNameBase;
     /** for example {@code 123} */
     protected final @NonNull String buildId;
     /** for example {@code 7} */
@@ -66,13 +64,13 @@ abstract class CloudWatchSender extends OutputStreamTaskListener.Default impleme
     private transient @CheckForNull TimestampTracker timestampTracker;
     protected transient @Nullable LogStreamState state;
 
-    protected CloudWatchSender(@NonNull String logGroupName, @NonNull String logStreamNameBase, @NonNull String buildId, @CheckForNull String nodeId, @CheckForNull TimestampTracker timestampTracker) {
-        this.logGroupName = Objects.requireNonNull(logGroupName);
-        this.logStreamNameBase = Objects.requireNonNull(logStreamNameBase);
+    protected CloudWatchSender(@NonNull String buildId, @CheckForNull String nodeId, @CheckForNull TimestampTracker timestampTracker) {
         this.buildId = Objects.requireNonNull(buildId);
         this.nodeId = nodeId;
         this.timestampTracker = timestampTracker;
     }
+
+    protected abstract LogGroupAndStream lgs();
 
     protected abstract LogStreamState loadState();
 
@@ -80,8 +78,11 @@ abstract class CloudWatchSender extends OutputStreamTaskListener.Default impleme
 
         private static final long serialVersionUID = 1;
 
+        protected final @NonNull LogGroupAndStream lgs;
+
         MasterSender(String logStreamNameBase, String buildId, String nodeId, TimestampTracker timestampTracker) throws IOException {
-            super(logGroupName(), logStreamNameBase, buildId, nodeId, timestampTracker);
+            super(buildId, nodeId, timestampTracker);
+            lgs = new LogGroupAndStream(logGroupName(), logStreamNameBase);
         }
 
         private static String logGroupName() throws IOException {
@@ -92,15 +93,19 @@ abstract class CloudWatchSender extends OutputStreamTaskListener.Default impleme
             return logGroupName;
         }
 
+        @Override protected LogGroupAndStream lgs() {
+            return lgs;
+        }
+
         @Override protected LogStreamState loadState() {
-            return LogStreamState.onMaster(logGroupName, logStreamNameBase);
+            return LogStreamState.MasterState.of(lgs);
         }
 
         private Object writeReplace() throws IOException {
             if (state == null) {
                 state = loadState();
             }
-            return new AgentSender(logGroupName, logStreamNameBase, buildId, nodeId, state.token());
+            return new AgentSender(new AgentToControllerCallable.TrustedObject<>(lgs), buildId, nodeId);
         }
 
     }
@@ -109,12 +114,12 @@ abstract class CloudWatchSender extends OutputStreamTaskListener.Default impleme
 
         private static final long serialVersionUID = 1;
 
-        private final String token;
+        private final AgentToControllerCallable.TrustedObject<LogGroupAndStream> lgs;
         private transient Channel channel;
 
-        AgentSender(String logGroupName, String logStreamNameBase, String buildId, String nodeId, String token) {
-            super(logGroupName, logStreamNameBase, buildId, nodeId, /* do not currently bother to record events from agent side */null);
-            this.token = token;
+        AgentSender(AgentToControllerCallable.TrustedObject<LogGroupAndStream> lgs, String buildId, String nodeId) {
+            super(buildId, nodeId, /* do not currently bother to record events from agent side */null);
+            this.lgs = lgs;
         }
 
         private Object readResolve() {
@@ -122,8 +127,12 @@ abstract class CloudWatchSender extends OutputStreamTaskListener.Default impleme
             return this;
         }
 
+        @Override protected LogGroupAndStream lgs() {
+            return lgs.o();
+        }
+
         @Override protected LogStreamState loadState() {
-            return LogStreamState.onAgent(logGroupName, logStreamNameBase, token, channel);
+            return LogStreamState.AgentState.of(lgs, channel);
         }
 
     }
@@ -146,12 +155,12 @@ abstract class CloudWatchSender extends OutputStreamTaskListener.Default impleme
             state.flush();
         }
         if (logger != null) {
-            LOGGER.log(Level.FINE, "closing {0}/{1}#{2}", new Object[] {logStreamNameBase, buildId, nodeId});
+            LOGGER.log(Level.FINE, "closing {0}/{1}#{2}", new Object[] {lgs().logStreamNameBase(), buildId, nodeId});
             logger = null;
         }
         if (nodeId != null && JenkinsJVM.isJenkinsJVM()) {
             // Note that this does not necessarily shut down the AWSLogs client; that is shared across builds.
-            PipelineBridge.get().close(logStreamNameBase, buildId);
+            PipelineBridge.get().close(lgs().logStreamNameBase(), buildId);
         }
     }
 
@@ -161,7 +170,7 @@ abstract class CloudWatchSender extends OutputStreamTaskListener.Default impleme
         protected void eol(byte[] b, int len) throws IOException {
             synchronized (CloudWatchSender.this) {
                 if (logger == null) {
-                    LOGGER.log(Level.FINER, "refusing to schedule event from closed or broken {0}/{1}#{2}", new Object[] {logStreamNameBase, buildId, nodeId});
+                    LOGGER.log(Level.FINER, "refusing to schedule event from closed or broken {0}/{1}#{2}", new Object[] {lgs().logStreamNameBase(), buildId, nodeId});
                     return;
                 }
             }
@@ -177,7 +186,7 @@ abstract class CloudWatchSender extends OutputStreamTaskListener.Default impleme
                         timestamp(now).
                         message(JSONObject.fromObject(data).toString()).
                         build())) {
-                    LOGGER.log(Level.FINER, "scheduled event @{0} from {1}/{2}#{3}", new Object[] {now, logStreamNameBase, buildId, nodeId});
+                    LOGGER.log(Level.FINER, "scheduled event @{0} from {1}/{2}#{3}", new Object[] {now, lgs().logStreamNameBase(), buildId, nodeId});
                 } else {
                     LOGGER.warning("Message buffer full, giving up");
                 }
