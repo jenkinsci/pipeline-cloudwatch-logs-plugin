@@ -30,6 +30,7 @@ import com.cloudbees.plugins.credentials.domains.Domain;
 import hudson.ExtensionList;
 import hudson.Functions;
 import hudson.util.Secret;
+import java.util.logging.Level;
 import org.jenkinsci.plugins.plaincredentials.impl.StringCredentialsImpl;
 import org.jenkinsci.plugins.workflow.cps.CpsFlowDefinition;
 import org.jenkinsci.plugins.workflow.job.WorkflowJob;
@@ -43,10 +44,12 @@ import static org.hamcrest.Matchers.allOf;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
 import static org.junit.Assume.assumeFalse;
+import org.jvnet.hudson.test.LoggerRule;
 import software.amazon.awssdk.services.cloudwatchlogs.model.ResourceNotFoundException;
 
 public class IntegrationTest {
 
+    @Rule public LoggerRule logging = new LoggerRule().recordPackage(PipelineBridge.class, Level.FINER);
     @Rule public JenkinsRule r = new JenkinsRule();
 
     @Before public void setUp() throws Exception {

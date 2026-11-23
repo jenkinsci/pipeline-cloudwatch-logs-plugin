@@ -49,10 +49,8 @@ import edu.umd.cs.findbugs.annotations.CheckForNull;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
 import java.util.UUID;
-import jenkins.security.HMACConfidentialKey;
-import jenkins.security.SlaveToMasterCallable;
+import jenkins.agents.AgentToControllerCallable;
 import jenkins.util.JenkinsJVM;
-import software.amazon.awssdk.auth.credentials.AwsCredentials;
 import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
@@ -75,51 +73,31 @@ abstract class LogStreamState {
 
     private static final Logger LOGGER = Logger.getLogger(LogStreamState.class.getName());
 
-    private static final Map<String, LogStreamState> states = new ConcurrentHashMap<>();
-
-    /**
-     * Guards AWS calls which for security reasons may only happen on the master.
-     * Agent calls must pass a valid MAC.
-     * The {@code message} is {@link #key}.
-     * @see #token
-     */
-    private static final HMACConfidentialKey TOKENS = new HMACConfidentialKey(MasterState.class, "TOKENS");
-
-    private static String key(String logGroupName, String logStreamNameBase) {
-        return logGroupName + "#" + logStreamNameBase;
-    }
-
-    static LogStreamState onMaster(String logGroupName, String logStreamNameBase) {
-        return states.computeIfAbsent(key(logGroupName, logStreamNameBase), k -> new MasterState(logGroupName, logStreamNameBase));
-    }
-
-    static LogStreamState onAgent(String logGroupName, String logStreamNameBase, String token, Channel channel) {
-        String key = key(logGroupName, logStreamNameBase);
-        return states.computeIfAbsent(key, k -> new AgentState(logGroupName, logStreamNameBase, token, channel));
-    }
-
-    protected final String logGroupName;
-    protected final String logStreamNameBase;
     private final @NonNull BlockingQueue<InputLogEvent> events = new ArrayBlockingQueue<>(10_000); // https://docs.aws.amazon.com/AmazonCloudWatchLogs/latest/APIReference/API_PutLogEvents.html max batch size
     private long lastOffered;
 
-    private LogStreamState(String logGroupName, String logStreamNameBase) {
-        this.logGroupName = logGroupName;
-        this.logStreamNameBase = logStreamNameBase;
-    }
+    protected abstract LogGroupAndStream lgs();
 
-    private static final class MasterState extends LogStreamState {
+    static final class MasterState extends LogStreamState {
 
+        private static final Map<LogGroupAndStream, MasterState> masterStates = new ConcurrentHashMap<>();
+
+        static MasterState of(LogGroupAndStream lgs) {
+            return masterStates.computeIfAbsent(lgs, k -> new MasterState(k));
+        }
+
+        private final LogGroupAndStream lgs;
         private @CheckForNull CloudWatchLogsClient client;
         private final Set<String> agentLogStreamNames = new HashSet<>();
 
-        private MasterState(String logGroupName, String logStreamNameBase) {
-            super(logGroupName, logStreamNameBase);
+        private MasterState(LogGroupAndStream lgs) {
+            this.lgs = lgs;
             JenkinsJVM.checkJenkinsJVM();
         }
 
-        @Override protected String token() {
-            return TOKENS.mac(key(logGroupName, logStreamNameBase));
+        @Override
+        protected LogGroupAndStream lgs() {
+            return lgs;
         }
 
         @Override protected synchronized CloudWatchLogsClient client() throws IOException {
@@ -130,7 +108,7 @@ abstract class LogStreamState {
         }
 
         @Override protected String logStreamName() {
-            return logStreamNameBase + "@master";
+            return lgs.logStreamNameBase() + "@master";
         }
 
         @Override protected void ensureRunning() throws IOException {
@@ -157,7 +135,7 @@ abstract class LogStreamState {
             String token = null;
             do {
                 var _token = token;
-                var r = currentClient.describeLogStreams(b -> b.logGroupName(logGroupName).logStreamNamePrefix(logStreamName).nextToken(_token));
+                var r = currentClient.describeLogStreams(b -> b.logGroupName(lgs.logGroupName()).logStreamNamePrefix(logStreamName).nextToken(_token));
                 for (var ls : r.logStreams()) {
                     if (ls.logStreamName().equals(logStreamName)) {
                         found = true;
@@ -168,7 +146,7 @@ abstract class LogStreamState {
             if (!found) {
                 // First-time project.
                 LOGGER.log(Level.FINE, "Creating {0}", logStreamName);
-                currentClient.createLogStream(b -> b.logGroupName(logGroupName).logStreamName(logStreamName));
+                currentClient.createLogStream(b -> b.logGroupName(lgs.logGroupName()).logStreamName(logStreamName));
             }
         }
 
@@ -180,7 +158,7 @@ abstract class LogStreamState {
             String agentLogStreamName;
             synchronized (agentLogStreamNames) {
                 for (int i = 1; ; i++) {
-                    String candidate = logStreamNameBase + "@agent" + i;
+                    String candidate = lgs.logStreamNameBase() + "@agent" + i;
                     if (agentLogStreamNames.add(candidate)) {
                         agentLogStreamName = candidate;
                         break;
@@ -247,7 +225,7 @@ abstract class LogStreamState {
         private String policy(String agentLogStreamName) {
             return "{\"Version\": \"2012-10-17\", \"Statement\": [" +
                    "{\"Effect\": \"Allow\", \"Action\": [\"logs:PutLogEvents\", \"logs:GetLogEvents\"], " +
-                    "\"Resource\": [\"arn:aws:logs:*:*:log-group:" + logGroupName + ":log-stream:" + agentLogStreamName + "\"]}" +
+                    "\"Resource\": [\"arn:aws:logs:*:*:log-group:" + lgs.logGroupName() + ":log-stream:" + agentLogStreamName + "\"]}" +
                    "]}";
         }
 
@@ -260,7 +238,7 @@ abstract class LogStreamState {
     }
     
     static @CheckForNull String validate(@NonNull String logGroupName) throws IOException {
-        Auth auth = ((MasterState) onMaster(logGroupName, "__example__")).authenticate();
+        Auth auth = MasterState.of(new LogGroupAndStream(logGroupName, "__example__")).authenticate();
         if (auth.restricted) {
             return null;
         } else if (auth.accessKeyId != null) {
@@ -271,90 +249,53 @@ abstract class LogStreamState {
         }
     }
 
-    private static abstract class SecuredCallable<V, T extends Throwable> extends SlaveToMasterCallable<V, T> {
-        
-        private static final long serialVersionUID = 1;
+    private record Authenticate(AgentToControllerCallable.TrustedObject<LogGroupAndStream> lgs) implements AgentToControllerCallable<Auth, IOException> {
 
-        protected final String logGroupName;
-        protected final String logStreamNameBase;
-        private final String token;
-        
-        protected SecuredCallable(String logGroupName, String logStreamNameBase, String token) {
-            this.logGroupName = logGroupName;
-            this.logStreamNameBase = logStreamNameBase;
-            this.token = token;
-        }
-        
-        @Override public V call() throws T {
-            MasterState state = (MasterState) onMaster(logGroupName, logStreamNameBase);
-            if (!TOKENS.checkMac(key(logGroupName, logStreamNameBase), token)) {
-                throw new SecurityException();
-            }
-            return doCall(state);
-        }
-        
-        protected abstract V doCall(MasterState state) throws T;
-        
-    }
-
-    private static final class Authenticate extends SecuredCallable<Auth, IOException> {
-
-        private static final long serialVersionUID = 1;
-
-        Authenticate(String logGroupName, String logStreamNameBase, String token) {
-            super(logGroupName, logStreamNameBase, token);
-        }
-
-        @Override protected Auth doCall(MasterState state) throws IOException {
+        @Override public Auth call() throws IOException {
+            var state = MasterState.of(lgs.o());
             Auth auth = state.authenticate();
-            state.create(auth.logStreamName);
+            state.create(auth.logStreamName.o());
             return auth;
         }
 
     }
 
-    private static final class NotifyShutdown extends SecuredCallable<Void, RuntimeException> {
+    private record NotifyShutdown(AgentToControllerCallable.TrustedObject<LogGroupAndStream> lgs, AgentToControllerCallable.TrustedObject<String> agentLogStreamName) implements AgentToControllerCallable<Void, RuntimeException> {
 
-        private static final long serialVersionUID = 1;
-
-        private final String agentLogStreamName;
-
-        NotifyShutdown(String logGroupName, String logStreamNameBase, String token, String agentLogStreamName) {
-            super(logGroupName, logStreamNameBase, token);
-            this.agentLogStreamName = agentLogStreamName;
-        }
-
-        @Override protected Void doCall(MasterState state) {
-            if (!agentLogStreamName.startsWith(logStreamNameBase + "@")) {
-                throw new SecurityException();
-            }
-            state.notifyShutdown(agentLogStreamName);
+        @Override public Void call() {
+            var state = MasterState.of(lgs.o());
+            state.notifyShutdown(agentLogStreamName.o());
             return null;
         }
 
     }
 
-    private static final class AgentState extends LogStreamState {
+    static final class AgentState extends LogStreamState {
 
-        private final @NonNull String token;
+        private static final Map<LogGroupAndStream, AgentState> agentStates = new ConcurrentHashMap<>();
+
+        static AgentState of(AgentToControllerCallable.TrustedObject<LogGroupAndStream> lgs, Channel channel) {
+            return agentStates.computeIfAbsent(lgs.o(), k -> new AgentState(lgs, channel));
+        }
+
+        private final @NonNull AgentToControllerCallable.TrustedObject<LogGroupAndStream> lgs;
         private @CheckForNull CloudWatchLogsClient client;
-        private @Nullable String logStreamName;
+        private @Nullable AgentToControllerCallable.TrustedObject<String> logStreamName;
         private final @NonNull Channel channel;
 
-        AgentState(String logGroupName, String logStreamNameBase, String token, Channel channel) {
-            super(logGroupName, logStreamNameBase);
-            this.token = token;
+        AgentState(AgentToControllerCallable.TrustedObject<LogGroupAndStream> lgs, Channel channel) {
+            this.lgs = lgs;
             this.channel = channel;
             JenkinsJVM.checkNotJenkinsJVM();
         }
 
-        @Override protected String token() {
-            return token;
+        @Override protected LogGroupAndStream lgs() {
+            return lgs.o();
         }
 
         @Override protected synchronized CloudWatchLogsClient client() throws IOException, InterruptedException {
             if (client == null) {
-                Auth auth = channel.call(new Authenticate(logGroupName, logStreamNameBase, token));
+                Auth auth = channel.call(new Authenticate(lgs));
                 client = auth.client();
                 logStreamName = auth.logStreamName;
             }
@@ -363,7 +304,7 @@ abstract class LogStreamState {
 
         @Override protected String logStreamName() throws IOException, InterruptedException {
             client();
-            return logStreamName;
+            return logStreamName.o();
         }
 
         @Override synchronized protected void ensureRunning() {
@@ -377,7 +318,7 @@ abstract class LogStreamState {
                 client.close();
                 client = null;
                 try {
-                    channel.callAsync(new NotifyShutdown(logGroupName, logStreamNameBase, token, logStreamName));
+                    channel.callAsync(new NotifyShutdown(lgs, logStreamName));
                 } catch (Exception x) {
                     LOGGER.log(Level.WARNING, null, x);
                 }
@@ -386,9 +327,6 @@ abstract class LogStreamState {
         }
 
     }
-
-    /** @see MasterState#TOKENS */
-    protected abstract @NonNull String token();
 
     protected abstract @NonNull CloudWatchLogsClient client() throws IOException, InterruptedException;
 
@@ -405,7 +343,7 @@ abstract class LogStreamState {
     }
 
     protected void schedule() {
-        new Thread(this::process, "CloudWatch Logs delivery: " + logGroupName + "/" + logStreamNameBase).start(); // TODO share threads between loggers using poll methods, or use NIO methods
+        new Thread(this::process, "CloudWatch Logs delivery: " + lgs().logGroupName() + "/" + lgs().logStreamNameBase()).start(); // TODO share threads between loggers using poll methods, or use NIO methods
     }
 
     private void process() {
@@ -440,7 +378,7 @@ abstract class LogStreamState {
                 try {
                     var _sequenceToken = sequenceToken;
                     var result = currentClient.putLogEvents(b -> b.
-                            logGroupName(logGroupName).
+                            logGroupName(lgs().logGroupName()).
                             logStreamName(logStreamName).
                             sequenceToken(_sequenceToken).
                             logEvents(processing));
@@ -477,22 +415,22 @@ abstract class LogStreamState {
     }
 
     void flush() throws IOException {
-        LOGGER.log(Level.FINE, "flushing {0}", logStreamNameBase);
+        LOGGER.log(Level.FINE, "flushing {0}", lgs().logStreamNameBase());
         long start = System.nanoTime();
         while (System.nanoTime() - start < TimeUnit.MINUTES.toNanos(1)) {
             try {
                 if (events.isEmpty()) {
                     if (lastOffered > 0) {
-                        LOGGER.log(Level.FINER, "all events up to {0} delivered in {1}; confirming receipt", new Object[] {lastOffered, logStreamNameBase});
+                        LOGGER.log(Level.FINER, "all events up to {0} delivered in {1}; confirming receipt", new Object[] {lastOffered, lgs().logStreamNameBase()});
                         String logStreamName = logStreamName();
-                        if (client().getLogEvents(b -> b.logGroupName(logGroupName).logStreamName(logStreamName).limit(1).startTime(lastOffered)).events().isEmpty()) {
+                        if (client().getLogEvents(b -> b.logGroupName(lgs().logGroupName()).logStreamName(logStreamName).limit(1).startTime(lastOffered)).events().isEmpty()) {
                             LOGGER.log(Level.FINER, "delivered an event in {0} with timestamp={1} but it has not yet been received", new Object[] {logStreamName, lastOffered});
                         } else {
                             LOGGER.log(Level.FINER, "confirmed event delivery in {0} with timestamp={1}", new Object[] {logStreamName, lastOffered});
                             return;
                         }
                     } else {
-                        LOGGER.log(Level.FINER, "no events delivered in {0}", logStreamNameBase);
+                        LOGGER.log(Level.FINER, "no events delivered in {0}", lgs().logStreamNameBase());
                         return;
                     }
                 }
@@ -512,14 +450,14 @@ abstract class LogStreamState {
      * Authentication to AWS.
      * Used from agent JVMs.
      */
-    private static final class Auth implements Serializable {
+    private static final class Auth implements Serializable { // TODO use record
         private static final long serialVersionUID = 1;
         final @CheckForNull String accessKeyId;
         final @Nullable String secretAccessKey;
         final @Nullable String sessionToken;
         // TODO also track expiration time, and automatically shut down the client so that a new call to master must be made
         final @CheckForNull String region;
-        final @NonNull String logStreamName;
+        final @NonNull AgentToControllerCallable.TrustedObject<String> logStreamName;
         /** Whether {@link MasterState#policy} was applied. */
         @SuppressFBWarnings(value = "SE_TRANSIENT_FIELD_NOT_RESTORED", justification = "only used in validation")
         transient final boolean restricted;
@@ -537,7 +475,7 @@ abstract class LogStreamState {
             this.secretAccessKey = secretAccessKey;
             this.sessionToken = sessionToken;
             this.region = region;
-            this.logStreamName = logStreamName;
+            this.logStreamName = new AgentToControllerCallable.TrustedObject<>(logStreamName);
             this.restricted = restricted;
         }
         CloudWatchLogsClient client() {
